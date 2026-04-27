@@ -1,14 +1,27 @@
-import "@/components/landing/landing.css";
-import { Hero } from "@/components/landing/Hero";
-import { SiteFooter } from "@/components/landing/SiteFooter";
-import { SiteHeader } from "@/components/landing/SiteHeader";
+import {
+  AboutStatsSection,
+  CTASection,
+  CustomCursor,
+  HeroSection,
+  ManifestoSection,
+  Navbar,
+  ProjectsSection,
+  ServicesSection,
+  SiteFooter,
+} from "@/components/landing";
 
 export default function Home() {
   return (
     <>
-      <SiteHeader />
+      <CustomCursor />
+      <Navbar />
       <main>
-        <Hero />
+        <HeroSection />
+        <AboutStatsSection />
+        <ManifestoSection />
+        <ServicesSection />
+        <ProjectsSection />
+        <CTASection />
       </main>
       <SiteFooter />
     </>

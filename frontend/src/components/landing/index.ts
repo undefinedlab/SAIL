@@ -1,0 +1,10 @@
+export { AboutStatsSection } from "./AboutStatsSection";
+export { CTASection } from "./CTASection";
+export { CustomCursor } from "./CustomCursor";
+export { HeroSection } from "./HeroSection";
+export { ManifestoSection } from "./ManifestoSection";
+export { Navbar } from "./Navbar";
+export { ProjectsSection } from "./ProjectsSection";
+export { ScrollReveal } from "./ScrollReveal";
+export { ServicesSection } from "./ServicesSection";
+export { SiteFooter } from "./SiteFooter";
