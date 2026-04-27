@@ -1,5 +1,5 @@
 {
-  "name": "next-page-starter",
+  "name": "frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,9 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@rainbow-me/rainbowkit": "^2.2.10",
+    "@tanstack/react-query": "^5.100.5",
     "next": "16.2.4",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "viem": "^2.48.4",
+    "wagmi": "^2.19.5"
   },
   "devDependencies": {
     "eslint": "^9",
