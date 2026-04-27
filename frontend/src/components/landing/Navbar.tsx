@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 
 export function Navbar() {
   const [solid, setSolid] = useState(false);
@@ -34,12 +35,17 @@ export function Navbar() {
           </span>
         </Link>
 
-        <Link
-          href="/dashboard"
-          className="shrink-0 items-center justify-center bg-[#3535f0] px-4 py-2.5 text-[11px] font-normal tracking-[0.08em] text-white transition-opacity duration-300 ease-in-out hover:opacity-90"
-        >
-          console
-        </Link>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="hidden md:block">
+            <ConnectButton chainStatus="icon" showBalance={false} />
+          </div>
+          <Link
+            href="/dashboard"
+            className="inline-flex items-center justify-center bg-[#3535f0] px-4 py-2.5 text-[11px] font-normal tracking-[0.08em] text-white transition-opacity duration-300 ease-in-out hover:opacity-90"
+          >
+            console
+          </Link>
+        </div>
       </div>
     </header>
   );
