@@ -47,7 +47,7 @@ export function SiteFooter() {
 
         <div className="mt-14 border-t border-white/35 pt-8">
           <p className="text-center text-[11px] tracking-[0.08em] text-white/35">
-            © {new Date().getFullYear()} SAIL — Secure Enclave Agent Layer. All rights
+            © {new Date().getFullYear()} SAIL — Secure Agentic Infrastructure Layer. All rights
             reserved. MIT License.
           </p>
         </div>

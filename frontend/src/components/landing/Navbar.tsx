@@ -30,7 +30,7 @@ export function Navbar() {
             className="shrink-0"
           />
           <span className="hidden truncate text-[11px] font-normal uppercase tracking-[0.22em] sm:inline">
-            Secure Agent Enclave Layer
+            Secure Agentic Infrastructure Layer
           </span>
         </Link>
 
