@@ -1,0 +1,26 @@
+{
+  "name": "seel",
+  "version": "1.0.0",
+  "description": "Node.js rainbow CLI starter scaffold",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "echo \"No tests yet\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/undefinedlab/SEEL.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/undefinedlab/SEEL/issues"
+  },
+  "homepage": "https://github.com/undefinedlab/SEEL#readme",
+  "dependencies": {
+    "chalk": "^5.6.2"
+  }
+}
