@@ -30,7 +30,7 @@ export const wagmiConfig = createConfig({
   },
 });
 
-export const sealContractAddress = (process.env.NEXT_PUBLIC_SEAL_CONTRACT_ADDRESS ??
+export const sailContractAddress = (process.env.NEXT_PUBLIC_SAIL_CONTRACT_ADDRESS ??
   "0x") as `0x${string}`;
 
 /**
@@ -38,9 +38,9 @@ export const sealContractAddress = (process.env.NEXT_PUBLIC_SEAL_CONTRACT_ADDRES
  * rewrites (see `next.config.ts`) can proxy to the real API — default proxy target matches backend PORT (3001).
  * Set `NEXT_PUBLIC_SEAL_API_URL` only when you need a direct absolute URL (e.g. API on another host).
  */
-export const sealApiBase = (
-  process.env.NEXT_PUBLIC_SEAL_API_URL?.replace(/\/$/, "") ?? ""
+export const sailApiBase = (
+  process.env.NEXT_PUBLIC_SAIL_API_URL?.replace(/\/$/, "") ?? ""
 ).trim();
 
-/** Human-readable label for UI when `sealApiBase` is empty (same-origin proxy). */
-export const sealApiLabel = sealApiBase || "same origin (Next.js → SEAL_API_PROXY_TARGET)";
+/** Human-readable label for UI when `sailApiBase` is empty (same-origin proxy). */
+export const sailApiLabel = sailApiBase || "same origin (Next.js → SAIL_API_PROXY_TARGET)";

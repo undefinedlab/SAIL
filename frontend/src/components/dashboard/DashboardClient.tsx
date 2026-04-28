@@ -5,7 +5,7 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useChainId, useReadContract } from "wagmi";
 import { formatEther, isAddress, keccak256, stringToBytes } from "viem";
 import { sailAbi } from "@/lib/sail-abi";
-import { expectedChain, sealApiBase, sailContractAddress } from "@/lib/wagmi-config";
+import { expectedChain, sailApiBase, sailContractAddress } from "@/lib/wagmi-config";
 import { OperatorsPanel } from "./operators";
 
 type RevealResult = { plaintext: string; cid: string } | null;
@@ -120,7 +120,7 @@ export function DashboardClient() {
     setRevealResult(null);
     setRevealLoading(true);
     try {
-      const res = await fetch(`${sealApiBase}/api/reveal`, {
+      const res = await fetch(`${sailApiBase}/api/reveal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -142,7 +142,7 @@ export function DashboardClient() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${sealApiBase}/health`)
+    fetch(`${sailApiBase}/health`)
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) {
@@ -171,7 +171,7 @@ export function DashboardClient() {
         ? `API unreachable (${healthError})`
         : health
           ? `Backend ${health.service ?? "ok"}`
-          : `API: ${sealApiBase}`,
+          : `API: ${sailApiBase}`,
     },
     {
       id: "02",
@@ -365,7 +365,7 @@ export function DashboardClient() {
                   Backend
                 </p>
                 <p className="mt-2 font-mono text-[11px] text-[#05058a]/70">
-                  {sealApiBase}
+                  {sailApiBase}
                 </p>
               </div>
             </div>

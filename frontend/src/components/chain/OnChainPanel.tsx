@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAccount, useChainId, useReadContract } from "wagmi";
 import { formatEther, isAddress, keccak256, stringToBytes } from "viem";
 import { sailAbi } from "@/lib/sail-abi";
-import { expectedChain, sealApiBase, sailContractAddress } from "@/lib/wagmi-config";
+import { expectedChain, sailApiBase, sailContractAddress } from "@/lib/wagmi-config";
 
 type Health = { status: string; service?: string; timestamp?: number };
 
@@ -73,7 +73,7 @@ export function OnChainPanel() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${sealApiBase}/health`)
+    fetch(`${sailApiBase}/health`)
       .then((r) => r.json())
       .then((j) => {
         if (!cancelled) {
@@ -110,7 +110,7 @@ export function OnChainPanel() {
         </div>
         <div className="text-right text-xs text-[var(--muted)]">
           <p>
-            API: <span className="font-mono text-stone-700">{sealApiBase}</span>
+            API: <span className="font-mono text-stone-700">{sailApiBase}</span>
           </p>
           {health && (
             <p className="mt-2 font-medium text-[var(--accent-subtle)]">

@@ -6,7 +6,7 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAccount, useSignMessage } from "wagmi";
 import { getAddress } from "viem";
 import { parseApiJson } from "@/lib/api-json";
-import { sealApiBase } from "@/lib/wagmi-config";
+import { sailApiBase } from "@/lib/wagmi-config";
 import { buildAuditRequestMessage } from "@/lib/audit-message";
 
 type AuditStatus = "pending" | "revealed" | "denied";
@@ -62,7 +62,7 @@ export function Auditors_Dash() {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(`${sealApiBase}/api/audit-requests?auditor=${encodeURIComponent(address)}`);
+      const r = await fetch(`${sailApiBase}/api/audit-requests?auditor=${encodeURIComponent(address)}`);
       const j = (await r.json()) as { requests?: AuditRequest[]; error?: string };
       if (!r.ok) throw new Error(j.error || r.statusText);
       setRequests(j.requests ?? []);
@@ -74,7 +74,10 @@ export function Auditors_Dash() {
   }, [address]);
 
   useEffect(() => {
-    void fetchMine();
+    const id = window.setTimeout(() => {
+      void fetchMine();
+    }, 0);
+    return () => window.clearTimeout(id);
   }, [fetchMine]);
 
   const idOk = /^0x[a-fA-F0-9]{64}$/.test(agentIdBytes32.trim());
@@ -90,9 +93,9 @@ export function Auditors_Dash() {
     }
     const auditor = getAddress(address);
     const message = buildAuditRequestMessage(raw, auditor);
-    const sig = await signMessageAsync({ message });
+    const sig = await signMessageAsync({ account: auditor, message });
 
-    const res = await fetch(`${sealApiBase}/api/audit-requests`, {
+    const res = await fetch(`${sailApiBase}/api/audit-requests`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -174,7 +177,7 @@ export function Auditors_Dash() {
                 >
                   {signing ? "Signing…" : "Sign + submit to backend"}
                 </button>
-                <p className="text-xs text-[#05058a]/65">Backend: {sealApiBase}</p>
+                <p className="text-xs text-[#05058a]/65">Backend: {sailApiBase}</p>
               </div>
               {submitError ? <p className="text-sm text-rose-800">{submitError}</p> : null}
             </div>

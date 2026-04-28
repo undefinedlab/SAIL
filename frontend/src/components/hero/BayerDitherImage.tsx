@@ -143,7 +143,7 @@ export function BayerDitherImage({ src, alt, className }: BayerDitherImageProps)
       if (photoTex) photoTex.dispose();
       if (material) material.dispose();
     };
-  }, [src]);
+  }, [src, alt]);
 
   return (
     <div

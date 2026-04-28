@@ -1,22 +1,13 @@
-import type { LitNetworkModule } from "@lit-protocol/networks";
-import {
-  naga,
-  nagaDev,
-  nagaLocal,
-  nagaMainnet,
-  nagaProto,
-  nagaStaging,
-  nagaTest,
-} from "@lit-protocol/networks";
+type LitNetworkModule = string;
 
 const BY_NORMALIZED_ID: Record<string, LitNetworkModule> = {
-  naga,
-  nagadev: nagaDev,
-  nagatest: nagaTest,
-  nagastaging: nagaStaging,
-  nagalocal: nagaLocal,
-  nagamainnet: nagaMainnet,
-  nagaproto: nagaProto,
+  naga: "naga",
+  nagadev: "nagaDev",
+  nagatest: "nagaTest",
+  nagastaging: "nagaStaging",
+  nagalocal: "nagaLocal",
+  nagamainnet: "nagaMainnet",
+  nagaproto: "nagaProto",
 };
 
 function normalizeLitNetworkId(raw: string): string {

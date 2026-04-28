@@ -7,7 +7,7 @@ export type OperatorAgentRegistration = {
   registeredAt: number;
 };
 
-const STORAGE_KEY = "seal_operator_agent";
+const STORAGE_KEY = "sail_operator_agent";
 
 export function loadOperatorAgent(): OperatorAgentRegistration | null {
   if (typeof window === "undefined") return null;

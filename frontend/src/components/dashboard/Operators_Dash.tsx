@@ -1,35 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { OperatorRegisterTab } from "@/components/dashboard/operator/OperatorRegisterTab";
-import { OperatorMonitorTab } from "@/components/dashboard/operator/OperatorMonitorTab";
-import { OperatorAuditTab } from "@/components/dashboard/operator/OperatorAuditTab";
-import type { OperatorAgentRegistration } from "@/lib/operator-agent";
-import { loadOperatorAgent, saveOperatorAgent } from "@/lib/operator-agent";
 
 export function Operators_Dash() {
-  const [tab, setTab] = useState<"register" | "monitor" | "audit">("register");
-  const [registeredAgent, setRegisteredAgent] = useState<OperatorAgentRegistration | null>(null);
-  const [selectedActionId, setSelectedActionId] = useState("");
-
-  useEffect(() => {
-    const saved = loadOperatorAgent();
-    setRegisteredAgent(saved);
-    if (saved) setTab("monitor");
-  }, []);
-
-  const handleRegistered = useCallback((reg: OperatorAgentRegistration) => {
-    setRegisteredAgent(reg);
-    saveOperatorAgent(reg);
-    setTab("monitor");
-  }, []);
-
-  const handleAgentFromMonitor = useCallback((reg: OperatorAgentRegistration) => {
-    setRegisteredAgent(reg);
-    saveOperatorAgent(reg);
-  }, []);
-
   return (
     <div className="w-full">
       <div className="border border-[#05058a]/15 bg-white p-6">
@@ -51,51 +25,32 @@ export function Operators_Dash() {
         </div>
       </div>
 
-      <div className="mt-6 border border-[#05058a]/15 bg-white p-3 sm:p-4">
-        <div className="flex flex-wrap gap-2">
-          {[
-            { id: "register", label: "Register agent" },
-            { id: "monitor", label: "Agents monitor" },
-            { id: "audit", label: "Audit request box" },
-          ].map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id as typeof tab)}
-              className={`px-4 py-2 text-[11px] uppercase tracking-[0.18em] transition-colors ${
-                tab === t.id
-                  ? "bg-[#05058a] text-white"
-                  : "border border-[#05058a]/20 bg-white text-[#05058a] hover:bg-[#f5f5f0]"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+      <div className="mt-6 border border-[#05058a]/15 bg-white p-6">
+        <p className="text-[11px] uppercase tracking-[0.22em] text-[#05058a]/65">
+          Operator flow
+        </p>
+        <h2 className="mt-3 text-2xl font-black tracking-[-0.02em] text-[#05058a]">
+          Operator modules temporarily unavailable
+        </h2>
+        <p className="mt-3 max-w-[72ch] text-sm leading-relaxed text-[#05058a]/70">
+          The operator submodules are not present in this branch yet, so this view is temporarily
+          reduced to avoid runtime/build errors. Auditor flow is fully available now.
+        </p>
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            href="/dashboard/auditor"
+            className="bg-[#05058a] px-5 py-3 text-[11px] uppercase tracking-[0.18em] text-white transition-opacity hover:opacity-90"
+          >
+            Open auditor path
+          </Link>
+          <Link
+            href="/dashboard"
+            className="border border-[#05058a]/20 bg-[#f5f5f0] px-5 py-3 text-[11px] uppercase tracking-[0.18em] text-[#05058a] transition-colors hover:bg-white"
+          >
+            Back to selector
+          </Link>
         </div>
       </div>
-
-      {tab === "register" ? (
-        <div className="mt-6">
-          <OperatorRegisterTab onRegistered={handleRegistered} />
-        </div>
-      ) : null}
-
-      {tab === "monitor" ? (
-        <div className="mt-6">
-          <OperatorMonitorTab
-            registeredAgent={registeredAgent}
-            onLoadAgent={handleAgentFromMonitor}
-            selectedActionId={selectedActionId}
-            onSelectActionId={setSelectedActionId}
-          />
-        </div>
-      ) : null}
-
-      {tab === "audit" ? (
-        <div className="mt-6">
-          <OperatorAuditTab selectedActionLabel={selectedActionId} />
-        </div>
-      ) : null}
     </div>
   );
 }

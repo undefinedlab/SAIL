@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { sealApiBase } from "@/lib/wagmi-config";
+import { sailApiBase } from "@/lib/wagmi-config";
 
 type RevealResult = { plaintext: string; cid: string } | null;
 
@@ -19,7 +19,7 @@ export function SelectiveRevealPanel() {
     setRevealResult(null);
     setRevealLoading(true);
     try {
-      const res = await fetch(`${sealApiBase}/api/reveal`, {
+      const res = await fetch(`${sailApiBase}/api/reveal`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

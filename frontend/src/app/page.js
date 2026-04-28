@@ -1,7 +1,6 @@
 import {
   AboutStatsSection,
   CTASection,
-  CustomCursor,
   HeroSection,
   ManifestoSection,
   Navbar,
@@ -13,7 +12,6 @@ import {
 export default function Home() {
   return (
     <>
-      <CustomCursor />
       <Navbar />
       <main>
         <HeroSection />

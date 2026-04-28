@@ -1,7 +1,7 @@
 import { parseAbi } from "viem";
 
 /** Aligned with `contracts/src/SEAL.sol` + `backend/src/contract-integration.ts` */
-export const sealAbi = parseAbi([
+export const sailAbi = parseAbi([
   "function registerAgent(bytes32 agentId) payable",
   "function minStake() view returns (uint256)",
   "function agents(bytes32 agentId) view returns (bool registered, uint256 nonce, uint256 stake, bool slashed, address agentOwner)",
