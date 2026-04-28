@@ -10,35 +10,35 @@ const USE_CASES = [
     category: "Governance",
     src: "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=900&q=80",
     hover:
-      "In DAO treasury automation, it’s hard to prove why a transaction happened before funds move. With SAIL, treasury risk becomes controllable: actions are enforced by policy, and disputes can be investigated without exposing everything by default.",
+      "In DAO treasury automation, it’s hard to prove why a transaction happened before funds move. With the Secure Agentic Intelligence Layer, treasury risk becomes controllable: actions are enforced by policy, and disputes can be investigated without exposing everything by default.",
   },
   {
     name: "Agent-to-agent",
     category: "Coordination",
     src: "https://images.unsplash.com/photo-1551434678-e076c223a692?w=900&q=80",
     hover:
-      "In agent-to-agent coordination, there’s no reliable way to know a worker didn’t fabricate an answer. With SAIL, collaboration is safer: risky tasks can be constrained, misbehavior becomes provable, and escalation paths are built in.",
+      "In agent-to-agent coordination, there’s no reliable way to know a worker didn’t fabricate an answer. With the Secure Agentic Intelligence Layer, collaboration is safer: risky tasks can be constrained, misbehavior becomes provable, and escalation paths are built in.",
   },
   {
     name: "Regulated deployments",
     category: "Audit",
     src: "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=900&q=80",
     hover:
-      "In regulated workflows, you need audit evidence without exposing strategy to everyone. With SAIL, you can satisfy audits with a tight trail of evidence, while keeping sensitive logic private unless an authorized review is triggered.",
+      "In regulated workflows, you need audit evidence without exposing strategy to everyone. With the Secure Agentic Intelligence Layer, you can satisfy audits with a tight trail of evidence, while keeping sensitive logic private unless an authorized review is triggered.",
   },
   {
     name: "Autonomous trading",
     category: "Finance",
     src: "https://images.unsplash.com/photo-1535320903710-d993d3d77d29?w=900&q=80",
     hover:
-      "In autonomous trading, proving fairness usually means leaking alpha. With SAIL, you can demonstrate integrity after the fact without giving away live strategy, and contain fallout when a trade is questioned.",
+      "In autonomous trading, proving fairness usually means leaking alpha. With the Secure Agentic Intelligence Layer, you can demonstrate integrity after the fact without giving away live strategy, and contain fallout when a trade is questioned.",
   },
   {
     name: "Credential-proof workflows",
     category: "Access",
     src: "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=900&q=80",
     hover:
-      "In credential-proof access flows, approvals often boil down to trust and screenshots. With SAIL, approvals become enforceable and auditable: decisions can be reviewed with evidence, without leaking private credentials.",
+      "In credential-proof access flows, approvals often boil down to trust and screenshots. With the Secure Agentic Intelligence Layer, approvals become enforceable and auditable: decisions can be reviewed with evidence, without leaking private credentials.",
   },
 ];
 

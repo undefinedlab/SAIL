@@ -1,53 +1,80 @@
 import Link from "next/link";
 
-const FOOTER_LINKS = [
-  { href: "#pipeline", label: "Pipeline" },
-  { href: "#usecases", label: "Use cases" },
-  { href: "#about", label: "About" },
-  { href: "#contact", label: "Contact" },
-];
+const FOOTER_COLUMNS = [
+  {
+    title: "About us",
+    links: [
+      { href: "#manifesto", label: "Manifesto" },
+      { href: "#contact", label: "Contact" },
+    ],
+  },
+  {
+    title: "Developers",
+    links: [
+      { href: "/mcp", label: "MCP" },
+      { href: "#", label: "Docs" },
+    ],
+  },
+  {
+    title: "Legals",
+    links: [
+      { href: "/terms", label: "Terms" },
+      { href: "/privacy", label: "Privacy" },
+    ],
+  },
+  {
+    title: "Community",
+    links: [
+      { href: "https://twitter.com", label: "Twitter", external: true },
+      { href: "https://linkedin.com", label: "LinkedIn", external: true },
+    ],
+  },
+] as const;
 
 export function SiteFooter() {
   return (
-    <footer data-oci-cursor="on-dark" className="bg-[#030350] py-16 text-white">
+    <footer data-oci-cursor="on-dark" className="bg-[#2020e8] py-16 text-white">
       <div className="mx-auto max-w-[1440px] px-6">
-        <div className="grid gap-12 md:grid-cols-3 md:gap-8">
-          <div>
-            <p className="max-w-xs text-sm font-light leading-relaxed text-white/60">
-              Commit · attest · execute · deliver
-            </p>
-          </div>
-
-          <nav className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center md:justify-center">
-            {FOOTER_LINKS.map((l) => (
-              <Link
-                key={l.href}
-                href={l.href}
-                className="text-[11px] uppercase tracking-[0.2em] text-white/55 transition-colors duration-300 ease-in-out hover:text-white"
-              >
-                {l.label}
-              </Link>
-            ))}
-          </nav>
-
-          <div className="flex flex-col gap-4 md:items-end">
-            <div className="flex gap-6 text-[11px] uppercase tracking-[0.2em] text-white/55">
-              <a
-                href="https://github.com"
-                className="transition-colors duration-300 ease-in-out hover:text-white"
-              >
-                GitHub
-              </a>
-              <a href="#" className="transition-colors duration-300 ease-in-out hover:text-white">
-                Docs
-              </a>
-            </div>
-          </div>
+        <div className="grid gap-12 md:grid-cols-4 md:justify-items-center md:gap-8">
+          {FOOTER_COLUMNS.map((col) => (
+            <nav
+              key={col.title}
+              aria-label={col.title}
+              className="grid justify-items-start gap-4 text-left md:justify-items-center md:text-center"
+            >
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/85">
+                {col.title}
+              </p>
+              <div className="grid gap-3 md:justify-items-center">
+                {col.links.map((l) =>
+                  "external" in l && l.external ? (
+                    <a
+                      key={l.label}
+                      href={l.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] uppercase tracking-[0.2em] text-white/55 transition-colors duration-300 ease-in-out hover:text-white"
+                    >
+                      {l.label}
+                    </a>
+                  ) : (
+                    <Link
+                      key={l.label}
+                      href={l.href}
+                      className="text-[11px] uppercase tracking-[0.2em] text-white/55 transition-colors duration-300 ease-in-out hover:text-white"
+                    >
+                      {l.label}
+                    </Link>
+                  )
+                )}
+              </div>
+            </nav>
+          ))}
         </div>
 
-        <div className="mt-14 border-t border-white/35 pt-8">
+        <div className="mt-14 pt-8">
           <p className="text-center text-[11px] tracking-[0.08em] text-white/35">
-            © {new Date().getFullYear()} SAIL — Secure Agentic Infrastructure Layer. All rights
+            © {new Date().getFullYear()} Secure Agentic Intelligence Layer. All rights
             reserved. MIT License.
           </p>
         </div>

@@ -22,16 +22,14 @@ export function Navbar() {
       }`}
     >
       <div className="relative mx-auto flex max-w-[1440px] items-center justify-between gap-6 px-6 py-5">
-        <Link href="#top" className="flex min-w-0 items-center gap-3 text-white">
-          <img
-            src="/logo_seel.svg"
-            alt="SAIL"
-            width={28}
-            height={28}
-            className="shrink-0"
-          />
+        <Link
+          href="#top"
+          className={`flex min-w-0 items-center gap-3 transition-colors duration-300 ease-in-out ${
+            solid ? "text-white" : "text-[#05058a]"
+          }`}
+        >
           <span className="hidden truncate text-[11px] font-normal uppercase tracking-[0.22em] sm:inline">
-            Secure Agentic Infrastructure Layer
+            Secure Agentic Intelligence Layer
           </span>
         </Link>
 

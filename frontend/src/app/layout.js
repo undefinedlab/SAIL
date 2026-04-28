@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "SEEL Web3 Frontend",
-  description: "Next.js dApp starter with MetaMask connection",
+  title: "SAIL",
+  description: "Secure Agentic Intelligence Layer",
 };
 
 export default function RootLayout({ children }) {

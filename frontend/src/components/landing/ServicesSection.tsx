@@ -4,32 +4,32 @@ const PIPELINE = [
   {
     n: "01",
     title: "Attest inputs",
-    desc: "Hash on-chain state and external data before reasoning — prove what the agent saw.",
+    desc: "Hash all inputs before reasoning begins — prove exactly what the agent received.",
   },
   {
     n: "02",
-    title: "Reason in TEE",
-    desc: "LLM inference inside Nitro / TDX; reasoning never leaves the enclave in plaintext.",
+    title: "Reason",
+    desc: "Any framework, any model. SAIL does not observe or constrain reasoning.",
   },
   {
     n: "03",
-    title: "Commit + attest",
-    desc: "Merkle-batched commitment on-chain with TEE quote — ordering is tamper-evident.",
+    title: "Commit",
+    desc: "Encrypt the commitment, pin it to permanent storage, then post hash + CID + nonce on-chain.",
   },
   {
     n: "04",
-    title: "Execute in TEE",
-    desc: "Contract gates execution on a valid prior commitment; action bound to reasoning.",
+    title: "Execute",
+    desc: "The contract gates execution on a valid prior commitment. Any missing stage reverts.",
   },
   {
     n: "05",
-    title: "Guaranteed delivery",
-    desc: "Tx bytes committed before submission — relayer substitution is detectable.",
+    title: "Deliver",
+    desc: "Transaction bytes are committed before submission so any substitution in transit is detectable.",
   },
   {
     n: "06",
-    title: "Selective reveal",
-    desc: "Encrypted blobs on Filecoin; Lit controls who can decrypt and verify the chain.",
+    title: "Audit (on request)",
+    desc: "Authorized auditors decrypt the blob and verify SHA256(plaintext) matches the on-chain commitment hash.",
   },
 ];
 

@@ -17,7 +17,7 @@ export function AboutStatsSection() {
             <div className="relative aspect-[4/5] w-full overflow-hidden bg-[#0808b0]">
               <BayerDitherImage
                 src={VISUAL_SRC}
-                alt="Trusted execution and infrastructure"
+                alt="Trusted execution and intelligence"
                 className="absolute inset-0 h-full w-full"
               />
             </div>
@@ -69,8 +69,8 @@ export function AboutStatsSection() {
 
             <ScrollReveal delayMs={120} className="mt-12">
               <p className="text-base font-light leading-[1.8] text-white/85">
-                Use SAIL wherever an agent can cause real-world impact: moving funds, changing state, approving access,
-                signing, or triggering irreversible actions.
+                Use the Secure Agentic Intelligence Layer wherever an agent can cause real-world impact: moving funds,
+                changing state, approving access, signing, or triggering irreversible actions.
                 <span className="block mt-4 text-white/75">
                   Use it when you need verifiability and controlled execution: prove what happened after the fact, and
                   ensure actions follow the agent’s decision path — without leaking strategy in real time. Ideal for

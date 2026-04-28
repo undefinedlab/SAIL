@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 export const COL_DARK = new THREE.Vector3(4 / 255, 4 / 255, 130 / 255);
 export const COL_LIGHT = new THREE.Vector3(72 / 255, 72 / 255, 240 / 255);
-export const CLEAR_HEX = 0x0808b0;
+export const CLEAR_HEX = 0xf5f5f0;
 export const DOT_SIZE_CSS = 2.25;
 export const MAX_PIXEL_RATIO = 3;
 
