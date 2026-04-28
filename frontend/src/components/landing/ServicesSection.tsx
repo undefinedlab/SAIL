@@ -1,35 +1,26 @@
+import React from "react";
 import { ScrollReveal } from "./ScrollReveal";
 
 const PIPELINE = [
   {
     n: "01",
-    title: "Attest inputs",
-    desc: "Hash all inputs before reasoning begins — prove exactly what the agent received.",
+    title: "What data the agent received",
+    desc: "Inputs are hashed before reasoning begins, creating a verifiable record of the exact data the agent saw.",
   },
   {
     n: "02",
-    title: "Reason",
-    desc: "Any framework, any model. SAIL does not observe or constrain reasoning.",
+    title: "What the agent committed to before acting",
+    desc: "The decision is encrypted, pinned, and committed on-chain before execution can proceed.",
   },
   {
     n: "03",
-    title: "Commit",
-    desc: "Encrypt the commitment, pin it to permanent storage, then post hash + CID + nonce on-chain.",
+    title: "Whether execution matched that commitment",
+    desc: "Execution is contract-gated against the prior commitment, so mismatched or missing stages revert.",
   },
   {
     n: "04",
-    title: "Execute",
-    desc: "The contract gates execution on a valid prior commitment. Any missing stage reverts.",
-  },
-  {
-    n: "05",
-    title: "Deliver",
-    desc: "Transaction bytes are committed before submission so any substitution in transit is detectable.",
-  },
-  {
-    n: "06",
-    title: "Audit (on request)",
-    desc: "Authorized auditors decrypt the blob and verify SHA256(plaintext) matches the on-chain commitment hash.",
+    title: "Whether the submitted transaction was modified",
+    desc: "Transaction bytes are committed before submission, making any in-transit substitution detectable.",
   },
 ];
 
@@ -38,15 +29,15 @@ export function ServicesSection() {
     <section id="pipeline" className="bg-[#f5f5f0] py-[120px] md:py-[160px]">
       <div className="mx-auto max-w-[1440px] px-6">
         <ScrollReveal>
-          <h2 className="text-[clamp(40px,6vw,80px)] font-black leading-none tracking-[-0.02em] text-[#05058a]">
-            The pipeline
+          <h2 className="text-[clamp(30px,4.5vw,56px)] font-black leading-none tracking-[-0.02em] text-[#05058a]">
+            Prove any AI agent on-chain execution
           </h2>
         </ScrollReveal>
 
-        <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-3 lg:gap-10">
+        <div className="mt-16 grid gap-8 sm:grid-cols-2 lg:grid-cols-2 lg:gap-10">
           {PIPELINE.map((s, i) => (
             <ScrollReveal key={s.n} delayMs={i * 50}>
-              <article className="group border-t border-[#2020e8] pt-6 transition-colors duration-300 ease-in-out hover:border-[#3535f0]">
+              <article className="group pt-6 transition-colors duration-300 ease-in-out">
                 <p className="text-[11px] uppercase tracking-[0.22em] text-neutral-500">
                   {s.n}
                 </p>

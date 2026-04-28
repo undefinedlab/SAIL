@@ -16,19 +16,19 @@ export function Navbar() {
 
   return (
     <header
-      data-oci-cursor="on-dark"
+      data-oci-cursor={solid ? "on-dark" : "on-light"}
       className={`fixed left-0 right-0 top-0 z-[100] transition-colors duration-300 ease-in-out ${
         solid ? "bg-[#05058a]" : "bg-transparent"
       }`}
     >
       <div className="relative mx-auto flex max-w-[1440px] items-center justify-between gap-6 px-6 py-5">
         <Link
-          href="#top"
+          href="/#top"
           className={`flex min-w-0 items-center gap-3 transition-colors duration-300 ease-in-out ${
             solid ? "text-white" : "text-[#05058a]"
           }`}
         >
-          <span className="hidden truncate text-[11px] font-normal uppercase tracking-[0.22em] sm:inline">
+          <span className="truncate text-[11px] font-semibold uppercase tracking-[0.22em]">
             Secure Agentic Intelligence Layer
           </span>
         </Link>

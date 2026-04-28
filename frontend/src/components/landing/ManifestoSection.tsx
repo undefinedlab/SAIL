@@ -1,3 +1,4 @@
+import React from "react";
 import { ScrollReveal } from "./ScrollReveal";
 
 export function ManifestoSection() {
@@ -14,15 +15,11 @@ export function ManifestoSection() {
                   that binds what the agent received, what it committed to, and what it executed.
                 </p>
               </ScrollReveal>
-              <ScrollReveal delayMs={160}>
-                <p className="text-[15px] font-light leading-[1.9] text-neutral-700 sm:text-base">
-                  Agents are black boxes. SAIL makes that box auditable.
-                </p>
-              </ScrollReveal>
+        
             </div>
           </div>
 
-          <div className="md:col-span-5 md:flex md:justify-end">
+          <div className="md:col-span-5">
             <ScrollReveal>
               <p className="text-left text-[clamp(22px,2.2vw,44px)] font-semibold leading-[1.05] tracking-[-0.03em] text-[#05058a]">
                 Reason privately, commit publicly, reveal selectively.
