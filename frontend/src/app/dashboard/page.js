@@ -1,0 +1,11 @@
+import { DashboardClient } from "@/components/dashboard/DashboardClient";
+
+export default function DashboardPage() {
+  return (
+    <main className="min-h-screen bg-[#f5f5f0] px-6 pb-12 pt-24">
+      <div className="mx-auto max-w-[1440px]">
+        <DashboardClient />
+      </div>
+    </main>
+  );
+}

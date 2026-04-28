@@ -1,16 +1,8 @@
 "use client";
 
-import { FormEvent, useState } from "react";
 import { ScrollReveal } from "./ScrollReveal";
 
 export function CTASection() {
-  const [sent, setSent] = useState(false);
-
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSent(true);
-  }
-
   return (
     <section
       id="contact"
@@ -21,39 +13,64 @@ export function CTASection() {
         <ScrollReveal>
           <div className="mx-auto max-w-[720px] text-center">
             <h2 className="text-[clamp(40px,6vw,80px)] font-black leading-none tracking-[-0.02em] text-white">
-              Ready to sail the loop?
+              Add SAIL to your MCP flow
             </h2>
             <p className="mt-6 text-sm font-light text-white/80">
-              Get updates on the demo, testnet, and integrations.
+              Drop in one server and expose SAIL tools to your agent runtime.
             </p>
 
-            <form
-              onSubmit={onSubmit}
-              className="mt-12 flex flex-col gap-4 sm:flex-row sm:items-stretch sm:justify-center"
-            >
-              <label htmlFor="sail-email" className="sr-only">
-                Email
-              </label>
-              <input
-                id="sail-email"
-                name="email"
-                type="email"
-                required
-                placeholder="you@build.xyz"
-                className="min-h-[52px] flex-1 border border-white/20 bg-white/10 px-4 text-white placeholder:text-white/50 focus:border-white focus:outline-none"
-              />
-              <button
-                type="submit"
-                className="min-h-[52px] bg-white px-8 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#05058a] transition-opacity duration-300 ease-in-out hover:opacity-90"
-              >
-                Notify me
-              </button>
-            </form>
-            {sent ? (
-              <p className="mt-4 text-sm text-white/80" role="status">
-                Thanks — you&apos;re on the list.
+            <div className="mt-10 text-left">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/85">
+                Add SAIL MCP to your agent stack
               </p>
-            ) : null}
+              <p className="mt-2 text-sm font-light text-white/75">
+                Works with Cursor, Claude, and MCP-native agent frameworks.
+              </p>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div className="border border-white/20 bg-white/10 p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/85">
+                    Cursor
+                  </p>
+                  <pre className="mt-3 overflow-x-auto text-[12px] leading-relaxed text-white/90">
+                    <code>{`{
+  "mcpServers": {
+    "sail": {
+      "command": "npx",
+      "args": [
+        "-y", "@sail/mcp-server",
+        "--ens=myagent.sail.eth",
+        "--stake=0.1",
+        "--tier=optimistic"
+      ]
+    }
+  }
+}`}</code>
+                  </pre>
+                </div>
+
+                <div className="border border-white/20 bg-white/10 p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/85">
+                    Claude
+                  </p>
+                  <pre className="mt-3 overflow-x-auto text-[12px] leading-relaxed text-white/90">
+                    <code>{`{
+  "mcpServers": {
+    "sail": {
+      "command": "npx",
+      "args": [
+        "-y", "@sail/mcp-server",
+        "--ens=myagent.sail.eth",
+        "--stake=0.1",
+        "--tier=optimistic"
+      ]
+    }
+  }
+}`}</code>
+                  </pre>
+                </div>
+              </div>
+            </div>
           </div>
         </ScrollReveal>
       </div>
