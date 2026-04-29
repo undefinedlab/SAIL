@@ -2,6 +2,7 @@ import {
   AboutStatsSection,
   CTASection,
   HeroSection,
+  ManifestIntroSection,
   ManifestoSection,
   Navbar,
   ProjectsSection,
@@ -15,9 +16,10 @@ export default function Home() {
       <Navbar />
       <main>
         <HeroSection />
-        <ManifestoSection />
+        <ManifestIntroSection />
         <ServicesSection />
         <AboutStatsSection />
+        <ManifestoSection />
         <ProjectsSection />
         <CTASection />
       </main>

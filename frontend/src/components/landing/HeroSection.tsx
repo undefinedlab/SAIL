@@ -12,16 +12,16 @@ export function HeroSection() {
     >
       <div
         data-oci-cursor="on-dark"
-        className="absolute bottom-[2.5dvh] left-1/2 top-[8dvh] z-0 w-[min(104vw,1360px)] -translate-x-1/2"
+        className="absolute bottom-[2.5dvh] left-1/2 top-[8dvh] z-0 w-[min(108vw,1440px)] -translate-x-1/2"
       >
         <BayerDitherHero imageSrc={HERO_IMAGE} className="h-full w-full" />
       </div>
 
       <div className="pointer-events-none relative z-20 h-full min-h-0 w-full px-4 sm:px-6 lg:px-8">
         <div className="relative mx-auto h-full max-w-7xl">
-          <p className="oci-hero-tagline absolute bottom-44 left-0 max-w-[min(100%,28rem)] text-[clamp(17px,1.85vw,24px)] font-light leading-snug text-white md:bottom-auto md:left-auto md:right-0 md:top-1/2 md:w-[min(36%,28rem)] md:max-w-none md:-translate-y-1/2 md:text-right">
-            Confidential & verifiable execution for AI agents{" "}
-            <span className="whitespace-nowrap">on-chain.</span>
+          <p className="oci-hero-tagline absolute bottom-44 left-0 max-w-[min(100%,30rem)] text-[clamp(16px,4.2vw,24px)] font-light leading-snug text-white md:bottom-auto md:left-auto md:right-0 md:top-1/2 md:w-[min(40%,34rem)] md:max-w-none md:-translate-y-1/2 md:text-right">
+            <span className="block">Confidential & verifiable execution</span>
+            <span className="block">for AI agents on-chain.</span>
           </p>
 
           <h1 className="absolute bottom-0 left-0 max-w-[95vw] pb-8 font-black text-white [text-shadow:0_18px_52px_rgba(0,0,0,0.22)] md:max-w-[70%] md:pb-14">

@@ -11,62 +11,40 @@ export function CTASection() {
     >
       <div className="mx-auto max-w-[1440px] px-6">
         <ScrollReveal>
-          <div className="mx-auto max-w-[980px] text-center">
-            <h2 className="text-[clamp(40px,6vw,80px)] font-black leading-none tracking-[-0.02em] text-[#05058a]">
+          <div>
+            <h2 className="text-[clamp(38px,5vw,68px)] font-black leading-[0.95] tracking-[-0.02em] text-[#05058a]">
               Add SAIL to your flow
             </h2>
-            <p className="mx-auto mt-6 max-w-[60ch] text-sm font-light text-[#05058a]/75">
-              Plug SAIL into your existing agent stack and keep every high-stakes action accountable,
-              auditable, and verifiable.
-            </p>
-
-            <div className="mt-10 text-left">
-              <p className="text-center text-[11px] font-semibold uppercase tracking-[0.22em] text-[#05058a]/70">
-                Ready integrations
-              </p>
-              <p className="mt-2 text-center text-sm font-light text-[#05058a]/65">
-                Works cleanly with your current tools and orchestration flow.
-              </p>
-
-              <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {[
-                  {
-                    name: "Cursor",
-                    desc: "Bring SAIL checks directly into local agent workflows.",
-                  },
-                  {
-                    name: "Claude",
-                    desc: "Use SAIL accountability in assistant-driven execution loops.",
-                  },
-                  {
-                    name: "LangChain",
-                    desc: "Attach SAIL to chain steps where state changes are critical.",
-                  },
-                  {
-                    name: "CrewAI",
-                    desc: "Coordinate multi-agent tasks with verifiable execution trails.",
-                  },
-                ].map((item) => (
-                  <article
-                    key={item.name}
-                    className="border border-[#05058a]/15 bg-white px-5 py-6 text-left"
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#05058a]/70">
-                      Integration
-                    </p>
-                    <p className="mt-3 text-xl font-black tracking-[-0.02em] text-[#05058a]">
-                      {item.name}
-                    </p>
-                    <p className="mt-3 text-sm leading-relaxed text-[#05058a]/70">
-                      {item.desc}
-                    </p>
-                  </article>
-                ))}
+            <div className="mt-8 grid gap-8 lg:grid-cols-2 lg:items-start">
+              <div className="overflow-hidden rounded-xl border border-[#05058a]/20 bg-[#05058a] p-5 md:p-6">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">MCP config</p>
+                <pre className="mt-4 overflow-x-auto text-[12px] leading-relaxed text-white/90">
+{`{
+  "mcpServers": {
+    "sail": {
+      "command": "npx",
+      "args": ["-y", "@sailprotocol/mcp-server"]
+    }
+  }
+}`}
+                </pre>
               </div>
 
-              <p className="mt-8 text-center text-[12px] font-medium uppercase tracking-[0.16em] text-[#05058a]/65">
-                Keep your flow. Add accountability.
-              </p>
+              <div className="text-left">
+                <p className="mt-5 max-w-[44ch] text-sm font-light leading-relaxed text-[#05058a]/75">
+                  Add SAIL once in MCP, then expand from calls to tools to full agent workflows with verifiable
+                  commit-before-execute checks.
+                </p>
+                <p className="mt-5 text-[12px] font-medium tracking-[-0.01em] text-[#05058a]/75">
+                  <span className="text-[#05058a]">sail.commit()</span>,{" "}
+                  <span className="text-[#05058a]">sail.execute()</span>,{" "}
+                  <span className="text-[#05058a]">sail.verify()</span>,{" "}
+                  <span className="text-[#05058a]">sail.audit()</span>
+                </p>
+                <p className="mt-6 text-[12px] font-medium uppercase tracking-[0.16em] text-[#05058a]/65">
+                  Keep your flow. Add accountability.
+                </p>
+              </div>
             </div>
           </div>
         </ScrollReveal>

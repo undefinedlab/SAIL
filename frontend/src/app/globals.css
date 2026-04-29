@@ -90,3 +90,36 @@ label[for] {
   animation: oci-hero-fade 0.9s ease 1s forwards;
 }
 
+@keyframes workflow-marquee-left {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes workflow-marquee-right {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.workflow-marquee {
+  animation-duration: 24s;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.workflow-marquee--left {
+  animation-name: workflow-marquee-left;
+}
+
+.workflow-marquee--right {
+  animation-name: workflow-marquee-right;
+}
+

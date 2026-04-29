@@ -2,6 +2,7 @@ export { AboutStatsSection } from "./AboutStatsSection";
 export { CTASection } from "./CTASection";
 export { CustomCursor } from "./CustomCursor";
 export { HeroSection } from "./HeroSection";
+export { ManifestIntroSection } from "./ManifestIntroSection";
 export { ManifestoSection } from "./ManifestoSection";
 export { Navbar } from "./Navbar";
 export { ProjectsSection } from "./ProjectsSection";
