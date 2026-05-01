@@ -1,21 +1,28 @@
 import { parseAbi } from "viem";
 
-/** Aligned with `contracts/src/SEAL.sol` + `backend/src/contract-integration.ts` */
+/** Aligned with `contract/src/SAIL.sol` (deployed to Ethereum Sepolia). */
 export const sailAbi = parseAbi([
-  "function registerAgent(bytes32 agentId) payable",
-  "function minStake() view returns (uint256)",
-  "function agents(bytes32 agentId) view returns (bool registered, uint256 nonce, uint256 stake, bool slashed, address agentOwner)",
-  "function getAgentTasks(bytes32 agentId) view returns (bytes32[])",
-  "function commitmentCount() view returns (uint256)",
-  "function executionCount() view returns (uint256)",
-  "function disputeCount() view returns (uint256)",
-  "function disputeBond() view returns (uint256)",
-  "function disputePeriod() view returns (uint256)",
-  "function registeredAgentCount() view returns (uint256)",
-  "function registeredAgentAt(uint256 index) view returns (bytes32)",
-  "function getRegisteredAgents() view returns (bytes32[])",
+  // Reads
+  "function MINIMUM_STAKE() view returns (uint256)",
   "function owner() view returns (address)",
-  "function getCommitment(bytes32 taskId) view returns (bool committed, bool executed, bytes32 merkleRoot, uint256 nonce, uint256 timestamp, address submitter, bytes32 executionHash)",
-  "function submitCommitment(bytes32 taskId, bytes32 merkleRoot, bytes attestationQuote, uint256 nonce, uint256 timestamp, bytes32 agentId)",
-  "function executeTask(bytes32 taskId, bytes txData, bytes32 executionHash, bytes signature)",
+  "function isAuthorized(address auditor, string ens) view returns (bool)",
+  "function getAgent(string ens) view returns ((address wallet, uint256 stake, uint8 tier, bool active, address[] auditors, uint256 commitmentCount, uint256 slashCount))",
+  "function getCommitment(bytes32 commitmentHash) view returns ((bytes32 inputHash, bytes32 commitmentHash, string cid, uint256 nonce, uint256 timestamp, bool executed))",
+  "function getNonce(string ens) view returns (uint256)",
+  "function getAuditors(string ens) view returns (address[])",
+  // Writes
+  "function register(string ens, uint8 tier, address[] auditors) payable",
+  "function addStake(string ens) payable",
+  "function updateAuditors(string ens, address[] auditors)",
+  "function commit(string ens, bytes32 commitmentHash, bytes32 inputHash, string cid)",
+  "function execute(string ens, bytes32 commitmentHash)",
+  "function slash(string ens)",
+  // Events
+  "event AgentRegistered(string indexed ens, address indexed wallet, uint8 tier, uint256 stake)",
+  "event CommitmentPosted(string indexed ens, bytes32 indexed commitmentHash, string cid, uint256 nonce)",
+  "event ExecutionCleared(string indexed ens, bytes32 indexed commitmentHash)",
+  "event AgentSlashed(string indexed ens, address indexed auditor, uint256 stakeSlashed)",
 ]);
+
+export type SailTier = 0 | 1 | 2;
+export const TIER_LABELS = ["Optimistic", "ZK", "TEE"] as const;

@@ -1,0 +1,38 @@
+{
+  "name": "sail-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SAIL backend — 0G Storage, 0G Compute, Lit Protocol, and SAIL contract integration.",
+  "main": "dist/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "smoke": "tsx src/scripts/smoke.ts",
+    "mcp": "tsx src/mcp/index.ts",
+    "setup-compute": "tsx src/scripts/setup-compute.ts"
+  },
+  "dependencies": {
+    "@0gfoundation/0g-compute-ts-sdk": "^0.8.0",
+    "@0gfoundation/0g-storage-ts-sdk": "^1.2.8",
+    "@ensdomains/ensjs": "^4.2.2",
+    "@lit-protocol/auth-helpers": "^8.0.0-alpha.0",
+    "@lit-protocol/constants": "^8.0.0-alpha.0",
+    "@lit-protocol/lit-node-client-nodejs": "^8.0.0-alpha.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.0",
+    "ethers": "6.13.1",
+    "express": "^4.21.0",
+    "viem": "^2.48.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,4 +1,4 @@
-import { Auditors_Dash } from "@/components/dashboard/Auditors_Dash";
+import { SailAuditorPanel } from "@/components/dashboard/SailAuditorPanel";
 import { Navbar } from "@/components/landing";
 
 export default function AuditorDashboardPage() {
@@ -7,7 +7,7 @@ export default function AuditorDashboardPage() {
       <Navbar />
       <main className="min-h-screen bg-[#f5f5f0] px-6 pb-12 pt-24">
         <div className="mx-auto max-w-[1440px]">
-          <Auditors_Dash />
+          <SailAuditorPanel />
         </div>
       </main>
     </>
