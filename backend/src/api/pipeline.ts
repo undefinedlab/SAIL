@@ -15,7 +15,7 @@ import { keccak256, toHex, type Hex } from "viem";
 import * as contract from "../contract/sail.js";
 import * as storage from "../../0g/storage.js";
 import * as compute from "../../0g/compute.js";
-import { encryptCommitmentBlob } from "../lit/encrypt.js";
+import { decryptAesFallbackBlob, encryptCommitmentBlob } from "../lit/encrypt.js";
 
 export type Tier = "optimistic" | "zk" | "tee";
 
@@ -110,13 +110,15 @@ export async function commit(input: CommitInput): Promise<CommitResult> {
   const encrypted = await encryptCommitmentBlob(plaintext, input.agentEns);
 
   // Upload encrypted blob to 0G Storage Log.
-  const wireBlob = new TextEncoder().encode(
-    JSON.stringify({
-      ciphertext: encrypted.ciphertext,
-      dataToEncryptHash: encrypted.dataToEncryptHash,
-      accessConditions: encrypted.accessConditions,
-    }),
-  );
+  const wire: Record<string, unknown> = {
+    ciphertext: encrypted.ciphertext,
+    dataToEncryptHash: encrypted.dataToEncryptHash,
+    accessConditions: encrypted.accessConditions,
+  };
+  if (encrypted.fallbackKey) {
+    wire["fallbackKey"] = encrypted.fallbackKey;
+  }
+  const wireBlob = new TextEncoder().encode(JSON.stringify(wire));
   const cid = await storage.uploadBlob(wireBlob);
 
   // Anchor on-chain.
@@ -151,6 +153,8 @@ export type EncryptedSealedBlob = {
   ciphertext: string;
   dataToEncryptHash: string;
   accessConditions: unknown;
+  /** Present for AES fallback blobs — allows server-side audit decrypt (demo path). */
+  fallbackKey?: string;
 };
 
 /**
@@ -161,4 +165,83 @@ export async function getSealedBlob(cid: string): Promise<EncryptedSealedBlob> {
   const bytes = await storage.downloadBlob(cid);
   const text = new TextDecoder().decode(bytes);
   return JSON.parse(text) as EncryptedSealedBlob;
+}
+
+export type AuditCommitmentResult = {
+  commitmentHash: Hex;
+  onChain: {
+    inputHash: Hex;
+    cid: string;
+    nonce: string;
+    timestamp: string;
+    executed: boolean;
+  };
+  /** How plaintext was recovered, if at all */
+  decryptMode: "aes-fallback" | "lit-required" | "none";
+  /** Parsed commitment blob when decryptMode === "aes-fallback" */
+  plaintext?: {
+    inputHash: string;
+    decision: string;
+    proposedAction: string;
+    attestation?: string;
+    agentEns: string;
+    timestamp: number;
+  };
+  hashVerified: boolean;
+  note?: string;
+};
+
+/**
+ * Auditor path: read on-chain commitment, fetch 0G blob, decrypt when AES fallback key is present.
+ * Lit-encrypted blobs return metadata only; decrypt with Lit in an auditor client.
+ */
+export async function auditCommitment(commitmentHash: Hex): Promise<AuditCommitmentResult> {
+  const c = await contract.getCommitment(commitmentHash);
+  if (c.commitmentHash !== commitmentHash) {
+    throw new Error("Commitment not found on-chain");
+  }
+
+  const sealed = await getSealedBlob(c.cid);
+  const base: AuditCommitmentResult = {
+    commitmentHash,
+    onChain: {
+      inputHash: c.inputHash,
+      cid: c.cid,
+      nonce: c.nonce.toString(),
+      timestamp: c.timestamp.toString(),
+      executed: c.executed,
+    },
+    decryptMode: "none",
+    hashVerified: false,
+  };
+
+  if (sealed.fallbackKey && sealed.ciphertext) {
+    const plainBytes = decryptAesFallbackBlob(sealed.ciphertext, sealed.fallbackKey);
+    const expected = keccak256(toHex(plainBytes));
+    const parsed = JSON.parse(new TextDecoder().decode(plainBytes)) as AuditCommitmentResult["plaintext"];
+    return {
+      ...base,
+      decryptMode: "aes-fallback",
+      plaintext: parsed,
+      hashVerified: expected.toLowerCase() === commitmentHash.toLowerCase(),
+      note: hashMatchesOnChainAnchor(parsed, c.inputHash)
+        ? "Plaintext inputHash field matches on-chain inputHash."
+        : "Plaintext blob inputHash differs from on-chain anchor — inspect manually.",
+    };
+  }
+
+  return {
+    ...base,
+    decryptMode: "lit-required",
+    note:
+      "Blob is Lit-encrypted. Decrypt with a Lit client using accessConditions; then keccak256(utf8(JSON)) should match commitmentHash.",
+  };
+}
+
+function hashMatchesOnChainAnchor(
+  parsed: AuditCommitmentResult["plaintext"] | undefined,
+  onChainInput: Hex,
+): boolean {
+  if (!parsed?.inputHash) return false;
+  return String(parsed.inputHash).toLowerCase() === String(onChainInput).toLowerCase();
 }

@@ -7,7 +7,7 @@
 
 import { LitNodeClientNodeJs } from "@lit-protocol/lit-node-client-nodejs";
 import { LIT_NETWORK } from "@lit-protocol/constants";
-import { createCipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { env } from "../config/env.js";
 
 let clientPromise: Promise<LitNodeClientNodeJs | null> | null = null;
@@ -101,4 +101,25 @@ export async function encryptCommitmentBlob(
 
   console.warn("[Lit] AES fallback used — fallbackKey stored in blob metadata");
   return { ciphertext, dataToEncryptHash, accessConditions, fallbackKey };
+}
+
+/**
+ * Decrypt AES-256-GCM ciphertext produced by encryptCommitmentBlob fallback (base64(iv||tag||enc)).
+ * `fallbackKeyHex` is 64 hex chars (32-byte key) + 24 hex chars (12-byte IV) = 88 chars, as emitted by the fallback encryptor.
+ */
+export function decryptAesFallbackBlob(ciphertextB64: string, fallbackKeyHex: string): Uint8Array {
+  const key = Buffer.from(fallbackKeyHex.slice(0, 64), "hex");
+  if (key.length !== 32) {
+    throw new Error("fallbackKey must start with 64 hex chars (32-byte AES key)");
+  }
+  const raw = Buffer.from(ciphertextB64, "base64");
+  if (raw.length < 12 + 16) {
+    throw new Error("ciphertext too short for AES-GCM (iv + tag + data)");
+  }
+  const iv = raw.subarray(0, 12);
+  const tag = raw.subarray(12, 28);
+  const enc = raw.subarray(28);
+  const decipher = createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return new Uint8Array(Buffer.concat([decipher.update(enc), decipher.final()]));
 }

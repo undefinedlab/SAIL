@@ -2,6 +2,8 @@
 
 This doc walks through an attest inputs → commit on-chain → clear the execute gate. The same tools work against **local stdio** (`sail`) or **remote Streamable HTTP** (`sail-production`).
 
+**Chained behavior in chat:** the project rule [`.cursor/rules/sail-mcp-audit-flow.mdc`](../../.cursor/rules/sail-mcp-audit-flow.mdc) tells the agent to run the full flow when you say things like **“think with audit by SAIL”** (after MCP is connected).
+
 ---
 
 ## 1. Prerequisites
@@ -40,7 +42,7 @@ Use **Agent** (or chat with MCP tools) and steer the model to call tools **in or
 
 ```json
 {
-  "ens": "demo-judge.sail.eth",
+  "ens": "demo.sail.eth",
   "tier": 0,
   "auditors": ["0x…"],
   "stakeEth": "0.01"
@@ -125,7 +127,18 @@ Adjust `agentEns` and copy real `inputHash` / `commitmentHash` between steps if 
 
 ---
 
-## 5. Other tools (optional)
+## 5. Audit — read decision + bound input hash
+
+**Tool:** `sail_audit_commitment` with **`commitmentHash`**. Reads the on-chain commitment + downloads the 0G blob. If the commit used **AES fallback** (Lit unavailable), returns **decrypted** `decision`, `proposedAction`, and blob `inputHash`, and checks **keccak(plaintext) === commitmentHash**. **Lit**-encrypted blobs return metadata only (decrypt with Lit as an auditor).
+
+**REST:** `GET /api/audit/<commitmentHash>`  
+**CLI:** `npx tsx src/scripts/audit-commitment.ts <commitmentHash>`
+
+Older commits (before `fallbackKey` was stored in the uploaded JSON) cannot be decrypted server-side.
+
+---
+
+## 6. Other tools 
 
 | Tool | When to use |
 |------|-------------|
@@ -133,13 +146,5 @@ Adjust `agentEns` and copy real `inputHash` / `commitmentHash` between steps if 
 | `sail_delegate` | Send a task over AXL to a worker (needs AXL up). |
 | `sail_deliver` | Deliver tx bytes via AXL mesh (needs AXL up). |
 | `sail_receive_messages` | Poll AXL inbox for replies. |
-
----
-
-## 6. Operational notes
-
-- **Hosted MCP** relies on **in-memory sessions**. If the Streamable HTTP connection drops after idle time, **toggle the MCP server off/on in Cursor** or retry; keeping **a single Railway replica** avoids session stickiness issues.
-- **Local stdio** (`sail`) is the most stable option for long hacking sessions.
-- If `sail_commit` fails, check RPC balance, 0G/Lit fallbacks, and that the ENS agent is **active** on the contract.
 
 ---

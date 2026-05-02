@@ -68,6 +68,15 @@ api.get("/commitments/:hash", async (req, res) => {
   }
 });
 
+api.get("/audit/:hash", async (req, res) => {
+  try {
+    const result = await pipeline.auditCommitment(req.params.hash as Hex);
+    res.json(jsonSafe(result));
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
 // -------------------------------------------------------------------------
 // Register agent
 // -------------------------------------------------------------------------

@@ -1,0 +1,33 @@
+---
+description: When the user wants a SAIL commit-before-execute audit flow, chain MCP tools in order (attest → commit → execute).
+alwaysApply: true
+---
+
+# SAIL MCP — “think with audit” / commit-before-execute
+
+When the user asks for accountability through SAIL, or uses phrases like **“think with audit by SAIL”**, **“SAIL audit flow”**, **“run the SAIL pipeline”**, or **“commit before execute with SAIL”**, treat that as a request to drive the **full attest → commit → execute** path using the **SAIL MCP tools** (not just explaining the concept).
+
+## Preconditions
+
+- The user must name or imply an **`agentEns`** (e.g. `zen.sail.eth`). If missing, ask once.
+- If they need a **new** agent, call **`sail_register`** first (then ENS subname if they use `*.sail.eth` and it does not exist yet — may require dashboard/API for ENS).
+
+## Required tool order
+
+1. **`sail_attest_inputs`** — Pass a single JSON-serialisable **`inputs`** object that captures everything relevant: task, constraints, context, and any data the decision should be bound to. **Save the returned `inputHash`.**
+
+2. **Reason in the same turn** — Produce a clear **`decision`** (what you conclude) and **`proposedAction`** (concrete next step / calldata description). This reasoning is *between* attest and commit by design.
+
+3. **`sail_commit`** — Use the same **`agentEns`**, the **`inputHash`** from step 1, your **`decision`**, and **`proposedAction`**. Optional **`attestation`** if 0G Compute sealed inference was used. **Save `commitmentHash`.**
+
+4. **`sail_execute`** — Use **`agentEns`** and **`commitmentHash`** from step 3.
+
+## Output to the user
+
+After each tool, summarise key fields (`inputHash`, `commitmentHash`, `cid`, tx hashes / Etherscan links when present). If a tool errors, stop and explain the failure.
+
+## Do not
+
+- Skip **`sail_attest_inputs`** before a new commitment for that reasoning episode.
+- Call **`sail_execute`** before a successful **`sail_commit`** for the same commitment.
+- Invent hashes — always use values returned by the tools.

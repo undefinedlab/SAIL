@@ -227,6 +227,7 @@ Start: `npm run mcp`
 | Tool | Description |
 |---|---|
 | `sail_register` | On-chain agent registration (operator wallet) |
+| `sail_audit_commitment` | Fetch 0G blob; decrypt if AES fallback; verify hash |
 | `sail_attest_inputs` | Hash inputs → inputHash |
 | `sail_commit` | Full commit: encrypt + upload + anchor |
 | `sail_execute` | Execute through contract gate |

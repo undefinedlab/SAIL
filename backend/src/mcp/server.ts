@@ -18,6 +18,7 @@
  *   sail_attest_inputs   Stage 01 — hash inputs before reasoning
  *   sail_commit          Stage 03 — Lit encrypt → 0G upload → SAIL anchor
  *   sail_execute         Stage 04 — contract-gated execution
+ *   sail_audit_commitment Fetch 0G blob + decrypt (AES fallback) or describe Lit blob
  *   sail_deliver         Stage 05 — send tx via AXL encrypted mesh
  *   sail_discover        Discovery — find agents by capability via ENS
  *   sail_delegate        Delegation — open AXL channel, send task to worker
@@ -216,6 +217,31 @@ export function createSailMcpServer(): McpServer {
               etherscan: `https://sepolia.etherscan.io/tx/${result.txHash}`,
               note: "Execution cleared. You may now perform the committed action.",
             }),
+          },
+        ],
+      };
+    },
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Stage 06 — sail_audit_commitment (reveal reasoning blob)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  mcp.tool(
+    "sail_audit_commitment",
+    "Auditor tool: given a commitmentHash, load on-chain metadata + 0G sealed blob. If the blob used AES fallback (Lit unavailable), returns decrypted decision/proposedAction/inputHash and verifies keccak matches commitmentHash. Lit-encrypted blobs return ciphertext metadata only — decrypt in a Lit-capable client.",
+    {
+      commitmentHash: z
+        .string()
+        .describe("0x-prefixed commitmentHash from sail_commit or Etherscan"),
+    },
+    async ({ commitmentHash }) => {
+      const result = await pipeline.auditCommitment(commitmentHash as `0x${string}`);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };
