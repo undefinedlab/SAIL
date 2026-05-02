@@ -1,69 +1,119 @@
 /**
- * AXL node manager.
+ * AXL node manager aligned with the public gensyn-ai/axl repository.
  *
- * Downloads the AXL binary for the current platform (if not already present),
- * generates or loads an identity key, writes a config file, and spawns the
- * AXL process as a child of the backend. Manages graceful shutdown.
- *
- * AXL binary releases: https://github.com/gensyn-ai/axl/releases
- * Config format: https://docs.gensyn.ai/tech/agent-exchange-layer
+ * The real setup is source-first:
+ *   1. Clone gensyn-ai/axl
+ *   2. Build `./cmd/node` with Go
+ *   3. Generate an ed25519 key
+ *   4. Write `node-config.json`
+ *   5. Run `./node -config node-config.json`
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { exec } from "node:child_process";
+import { spawn, type ChildProcess, execFile as execFileCb } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
 import path from "node:path";
 import { env } from "../src/config/env.js";
 import { isAlive } from "./client.js";
 
-const execAsync = promisify(exec);
+const execFile = promisify(execFileCb);
 
 const AXL_DIR = path.join(process.cwd(), ".axl");
+const REPO_DIR = path.join(AXL_DIR, "repo");
 const CONFIG_PATH = path.join(AXL_DIR, "node-config.json");
-const KEY_PATH = path.join(AXL_DIR, "identity.key");
-const BINARY_PATH = path.join(AXL_DIR, "axl-node");
+const KEY_PATH = path.join(AXL_DIR, "private.pem");
+const BINARY_PATH = path.join(REPO_DIR, "node");
 
 let axlProcess: ChildProcess | null = null;
 
-function platform(): string {
-  const p = process.platform;
-  const a = process.arch;
-  if (p === "linux" && a === "x64") return "linux-amd64";
-  if (p === "linux" && a === "arm64") return "linux-arm64";
-  if (p === "darwin" && a === "x64") return "darwin-amd64";
-  if (p === "darwin" && a === "arm64") return "darwin-arm64";
-  throw new Error(`Unsupported platform: ${p}/${a}`);
+function parseCsvEnv(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
-async function downloadBinary(): Promise<void> {
-  if (existsSync(BINARY_PATH)) return;
+async function runOrThrow(command: string, args: string[], cwd?: string, extraEnv?: NodeJS.ProcessEnv) {
+  try {
+    await execFile(command, args, {
+      cwd,
+      env: { ...process.env, ...(extraEnv ?? {}) },
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error && "stderr" in error
+        ? String((error as Error & { stderr?: string }).stderr || error.message)
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    throw new Error(`${command} ${args.join(" ")} failed: ${message}`.trim());
+  }
+}
+
+async function ensureGoInstalled(): Promise<void> {
+  try {
+    await execFile("go", ["version"]);
+  } catch {
+    throw new Error(
+      "Go 1.25.x is required to build the real AXL node. Install it with `brew install go` on macOS, then retry.",
+    );
+  }
+}
+
+async function ensureRepo(): Promise<void> {
   mkdirSync(AXL_DIR, { recursive: true });
 
-  const plat = platform();
-  // Latest AXL release binary naming — update tag as new releases ship
-  const tag = "v0.1.0";
-  const url = `https://github.com/gensyn-ai/axl/releases/download/${tag}/axl-node-${plat}`;
-  console.log(`[AXL] downloading binary for ${plat} from ${url}…`);
-  await execAsync(`curl -fsSL "${url}" -o "${BINARY_PATH}" && chmod +x "${BINARY_PATH}"`);
-  console.log("[AXL] binary downloaded");
+  if (!existsSync(REPO_DIR)) {
+    await runOrThrow("git", ["clone", "--depth", "1", "https://github.com/gensyn-ai/axl.git", REPO_DIR]);
+    return;
+  }
+
+  await runOrThrow("git", ["fetch", "--depth", "1", "origin", "main"], REPO_DIR);
+  await runOrThrow("git", ["reset", "--hard", "origin/main"], REPO_DIR);
+}
+
+async function ensureBuiltBinary(): Promise<void> {
+  await ensureGoInstalled();
+  await ensureRepo();
+  await runOrThrow("go", ["build", "-o", "node", "./cmd/node/"], REPO_DIR);
 }
 
 async function ensureIdentityKey(): Promise<void> {
-  if (existsSync(KEY_PATH)) return;
+  if (existsSync(KEY_PATH)) {
+    return;
+  }
+
   mkdirSync(AXL_DIR, { recursive: true });
-  await execAsync(`openssl genrsa -out "${KEY_PATH}" 2048 2>/dev/null`);
-  console.log("[AXL] identity key generated");
+
+  const macOpenSsl = "/opt/homebrew/opt/openssl/bin/openssl";
+  if (process.platform === "darwin" && existsSync(macOpenSsl)) {
+    await runOrThrow(macOpenSsl, ["genpkey", "-algorithm", "ed25519", "-out", KEY_PATH]);
+    return;
+  }
+
+  await runOrThrow("openssl", ["genpkey", "-algorithm", "ed25519", "-out", KEY_PATH]);
 }
 
 function writeConfig(): void {
-  const bridgePort = new URL(env.axl.bridgeUrl).port || "9002";
-  const config = {
-    listenPort: 0,
-    httpBridgePort: parseInt(bridgePort, 10),
-    privateKeyFile: KEY_PATH,
-    logLevel: "warn",
+  const bridgeUrl = new URL(env.axl.bridgeUrl);
+  const bridgePort = Number(bridgeUrl.port || "9002");
+  const bridgeAddr = bridgeUrl.hostname || "127.0.0.1";
+  const peers = parseCsvEnv("AXL_PEERS");
+  const listen = parseCsvEnv("AXL_LISTEN");
+  const tcpPort = Number(process.env["AXL_TCP_PORT"] || "7000");
+
+  const config: Record<string, unknown> = {
+    PrivateKeyPath: KEY_PATH,
+    Peers: peers,
+    api_port: bridgePort,
+    bridge_addr: bridgeAddr,
+    tcp_port: tcpPort,
   };
+
+  if (listen.length) {
+    config["Listen"] = listen;
+  }
+
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
 }
 
@@ -74,36 +124,37 @@ export async function startAxlNode(timeoutMs = 30_000): Promise<void> {
     return;
   }
 
-  await downloadBinary();
+  await ensureBuiltBinary();
   await ensureIdentityKey();
   writeConfig();
 
   axlProcess = spawn(BINARY_PATH, ["-config", CONFIG_PATH], {
+    cwd: REPO_DIR,
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
   });
 
-  axlProcess.stdout?.on("data", (d: Buffer) =>
-    process.stdout.write(`[AXL] ${d.toString()}`),
-  );
-  axlProcess.stderr?.on("data", (d: Buffer) =>
-    process.stderr.write(`[AXL] ${d.toString()}`),
-  );
+  axlProcess.stdout?.on("data", (chunk: Buffer) => {
+    process.stdout.write(`[AXL] ${chunk.toString()}`);
+  });
+  axlProcess.stderr?.on("data", (chunk: Buffer) => {
+    process.stderr.write(`[AXL] ${chunk.toString()}`);
+  });
 
   axlProcess.on("exit", (code) => {
     console.warn(`[AXL] process exited with code ${code}`);
     axlProcess = null;
   });
 
-  // Wait for the HTTP bridge to become reachable
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await isAlive()) {
       console.log("[AXL] node is up");
       return;
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
+
   throw new Error("[AXL] node did not come up within timeout");
 }
 
@@ -116,5 +167,11 @@ export function stopAxlNode(): void {
 }
 
 process.on("exit", stopAxlNode);
-process.on("SIGINT", () => { stopAxlNode(); process.exit(); });
-process.on("SIGTERM", () => { stopAxlNode(); process.exit(); });
+process.on("SIGINT", () => {
+  stopAxlNode();
+  process.exit();
+});
+process.on("SIGTERM", () => {
+  stopAxlNode();
+  process.exit();
+});

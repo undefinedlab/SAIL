@@ -17,7 +17,13 @@ axlRoutes.get("/status", async (_req, res) => {
     const alive = await axl.isAlive();
     if (!alive) return res.json({ online: false });
     const topology = await axl.getTopology();
-    res.json({ online: true, ...topology });
+    res.json({
+      online: true,
+      peerId: topology.peerId,
+      address: topology.ipv6,
+      peers: topology.peers,
+      tree: topology.tree,
+    });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
