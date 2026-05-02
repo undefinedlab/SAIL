@@ -10,14 +10,8 @@ export default function OperatorDashboardPage() {
         <div className="mx-auto max-w-[1440px]">
           <ConsoleFrame
             eyebrow="Operator Path"
-            title="Run the full SAIL commit path"
-            description="This is the hands-on operator workspace for contract registration, pipeline execution, ENS identity setup, and AXL messaging tests."
-            aside={
-              <div className="space-y-2 text-xs text-[#05058a]/68">
-                <p>Recommended order: register → pipeline → monitor → identity → mesh.</p>
-                <p>Every write flow depends on the backend operator wallet and a healthy Sepolia setup.</p>
-              </div>
-            }
+            title="Commit path and operator tooling"
+            description="Use Agent for registration and on-chain status, Pipeline for attest → commit → execute, and Network for ENS plus AXL mesh."
           >
             <SailOperatorPanel />
           </ConsoleFrame>

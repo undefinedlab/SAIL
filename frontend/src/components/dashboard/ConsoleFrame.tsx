@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 type ConsoleFrameProps = {
   eyebrow: string;
   title: string;
@@ -7,12 +5,6 @@ type ConsoleFrameProps = {
   children: React.ReactNode;
   aside?: React.ReactNode;
 };
-
-const NAV_ITEMS = [
-  { href: "/dashboard", label: "Mission Control" },
-  { href: "/dashboard/operator", label: "Operator" },
-  { href: "/dashboard/auditor", label: "Auditor" },
-];
 
 export function ConsoleFrame({
   eyebrow,
@@ -24,7 +16,11 @@ export function ConsoleFrame({
   return (
     <section className="space-y-6">
       <div className="overflow-hidden border border-[#05058a]/15 bg-white">
-        <div className="grid gap-8 border-b border-[#05058a]/10 bg-[linear-gradient(135deg,rgba(5,5,138,0.05),rgba(32,32,232,0.12))] px-6 py-7 md:grid-cols-[minmax(0,1fr)_280px] md:px-8">
+        <div
+          className={`grid gap-8 border-b border-[#05058a]/10 bg-[linear-gradient(135deg,rgba(5,5,138,0.05),rgba(32,32,232,0.12))] px-6 py-7 md:px-8 ${
+            aside ? "md:grid-cols-[minmax(0,1fr)_280px]" : ""
+          }`}
+        >
           <div>
             <p className="text-[11px] uppercase tracking-[0.22em] text-[#05058a]/60">
               {eyebrow}
@@ -37,24 +33,11 @@ export function ConsoleFrame({
             </p>
           </div>
 
-          <div className="space-y-3 border border-[#05058a]/10 bg-white/80 p-4 backdrop-blur">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/55">
-              Paths
-            </p>
-            <div className="space-y-2">
-              {NAV_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="flex items-center justify-between border border-[#05058a]/10 px-3 py-2 text-sm text-[#05058a] transition-colors hover:bg-[#05058a] hover:text-white"
-                >
-                  <span>{item.label}</span>
-                  <span className="text-xs">↗</span>
-                </Link>
-              ))}
+          {aside ? (
+            <div className="space-y-3 border border-[#05058a]/10 bg-white/80 p-4 backdrop-blur md:mt-0">
+              {aside}
             </div>
-            {aside}
-          </div>
+          ) : null}
         </div>
 
         <div className="px-6 py-6 md:px-8">{children}</div>

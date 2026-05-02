@@ -1,18 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { useSyncExternalStore } from "react";
+import { ConnectButtonNoSSR } from "@/components/wallet/ConnectButtonNoSSR";
+
+function useScrolledPast(px: number): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const onScroll = () => onChange();
+      window.addEventListener("scroll", onScroll, { passive: true });
+      return () => window.removeEventListener("scroll", onScroll);
+    },
+    () => window.scrollY > px,
+    () => false,
+  );
+}
 
 export function Navbar() {
-  const [solid, setSolid] = useState(false);
-
-  useEffect(() => {
-    const onScroll = () => setSolid(window.scrollY > 48);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  const solid = useScrolledPast(48);
 
   return (
     <header
@@ -35,7 +40,7 @@ export function Navbar() {
 
         <div className="flex shrink-0 items-center gap-2">
           <div className="hidden md:block">
-            <ConnectButton chainStatus="icon" showBalance={false} />
+            <ConnectButtonNoSSR chainStatus="icon" showBalance={false} />
           </div>
           <Link
             href="/dashboard"

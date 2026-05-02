@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { ConnectButtonNoSSR } from "@/components/wallet/ConnectButtonNoSSR";
 import { keccak256, type Hex } from "viem";
 import { sailAbi } from "@/lib/sail-abi";
 import { fetchSealedBlob, getCommitment, getAgent } from "@/lib/sail-api";
@@ -189,7 +189,7 @@ export function SailAuditorPanel() {
             </p>
           ) : null}
         </div>
-        <ConnectButton showBalance={false} chainStatus="icon" />
+        <ConnectButtonNoSSR showBalance={false} chainStatus="icon" />
       </div>
 
       <div className="flex border-b border-neutral-200">

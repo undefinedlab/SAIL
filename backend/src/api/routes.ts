@@ -8,8 +8,7 @@ import type { Hex } from "viem";
 import * as pipeline from "./pipeline.js";
 import * as contract from "../contract/sail.js";
 import * as compute from "../../0g/compute.js";
-import * as ensRegistry from "../../ens/registry.js";
-import { env } from "../config/env.js";
+import { registerEnsSubnameForAgentIfApplicable } from "./register-agent-shared.js";
 
 export const api = Router();
 
@@ -83,7 +82,14 @@ api.get("/audit/:hash", async (req, res) => {
 
 api.post("/register", async (req, res) => {
   try {
-    const { ens, tier = 0, auditors, stakeEth = "0.01", skipEns = false } = req.body ?? {};
+    const {
+      ens,
+      tier = 0,
+      auditors,
+      stakeEth = "0.01",
+      skipEns = false,
+      ensExtraRecords,
+    } = req.body ?? {};
     if (!ens || !auditors?.length) {
       return res.status(400).json({ error: "ens and auditors[] required" });
     }
@@ -95,32 +101,17 @@ api.post("/register", async (req, res) => {
     await contract.waitForReceipt(txHash);
     const agent = await contract.getAgent(ens);
 
-    // 2. Create ENS subname if the ENS name is a subdomain under the configured parent
-    const parentName = env.ens.parentName || "sail.eth";
-    const ensSubnameResult: { txHashes: string[]; pendingRecords?: boolean } | null = await (async () => {
-      if (skipEns) return null;
-      // Only auto-create if the name ends with the parent (e.g. "swarnim.sail.eth")
-      if (!ens.endsWith(`.${parentName}`)) return null;
-      const subLabel = ens.slice(0, -(`.${parentName}`.length));
-      if (!subLabel) return null;
-
-      try {
-        const tierRecord = tier === 0 ? "optimistic" : tier === 1 ? "zk" : "tee";
-        return await ensRegistry.registerAgentSubname(
-          parentName,
-          subLabel,
-          {
-            sail_tier: tierRecord,
-            sail_contract: contract.SAIL_ADDRESS,
-            auditors: (auditors as string[]).join(","),
-          },
-        );
-      } catch (ensErr) {
-        // ENS subname creation is best-effort — don't fail the whole registration
-        console.error("[register] ENS subname creation failed:", (ensErr as Error).message);
-        return null;
-      }
-    })();
+    // 2. ENS subname + text records when ens is under configured parent (e.g. *.sail.eth)
+    const ensSubnameResult = await registerEnsSubnameForAgentIfApplicable({
+      ens,
+      tier: tier as 0 | 1 | 2,
+      auditors: auditors as string[],
+      skipEns: Boolean(skipEns),
+      ensExtraRecords:
+        ensExtraRecords && typeof ensExtraRecords === "object" && !Array.isArray(ensExtraRecords)
+          ? (ensExtraRecords as Record<string, string>)
+          : undefined,
+    });
 
     res.json(jsonSafe({ txHash, ens, agent, ensSubname: ensSubnameResult }));
   } catch (err) {

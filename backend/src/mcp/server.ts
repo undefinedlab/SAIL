@@ -14,7 +14,7 @@
  *   MCP_TRANSPORT=http npm run mcp     → same as mcp:http
  *
  * Tools:
- *   sail_register        On-chain agent registration (operator-signed; same as POST /api/register)
+ *   sail_register        SAIL contract register + optional ENS subname/records (same as POST /api/register)
  *   sail_attest_inputs   Stage 01 — hash inputs before reasoning
  *   sail_commit          Stage 03 — Lit encrypt → 0G upload → SAIL anchor
  *   sail_execute         Stage 04 — contract-gated execution
@@ -35,6 +35,7 @@ import * as axl from "../../gensyn/client.js";
 import * as ens from "../../ens/registry.js";
 import * as sailContract from "../contract/sail.js";
 import { SAIL_ADDRESS } from "../contract/sail.js";
+import { registerEnsSubnameForAgentIfApplicable } from "../api/register-agent-shared.js";
 
 export function createSailMcpServer(): McpServer {
   const mcp = new McpServer({
@@ -48,28 +49,38 @@ export function createSailMcpServer(): McpServer {
 
   mcp.tool(
     "sail_register",
-    "Register a new agent on the SAIL contract. Signs with the server operator key — on-chain agent.wallet becomes the operator address (same as POST /api/register). Requires a unique ENS string (e.g. myagent.sail.eth). Mint ENS subname separately via dashboard or POST /api/ens/register if you use *.sail.eth.",
+    "Register on the SAIL contract (tier 0=optimistic, 1=ZK, 2=TEE; stakeEth; full ens name). All txs are signed with the server OPERATOR_PRIVATE_KEY — configure that key for local runs. If ens is a subdomain of the configured parent (e.g. myagent.sail.eth), also creates the ENS subname and writes sail_tier, sail_contract, auditors, plus optional ensExtraRecords (capabilities, axl_peer_id, …). Same behavior as POST /api/register. Use skipEns true for on-chain-only.",
     {
       ens: z
         .string()
-        .describe("Full ENS name for this agent (must not already be registered)"),
+        .describe("Full ENS name (e.g. myagent.sail.eth); must not already be registered on SAIL"),
       tier: z
         .number()
         .int()
         .min(0)
         .max(2)
         .optional()
-        .describe("0 = optimistic, 1 = ZK, 2 = TEE (default 0)"),
+        .describe("Trust tier: 0 = optimistic, 1 = ZK, 2 = TEE (default 0). Written on-chain and in ENS sail_tier text record."),
       auditors: z
         .array(z.string())
         .min(1)
-        .describe("Ethereum addresses authorized to audit/slash (0x-prefixed hex)"),
+        .describe("Auditor addresses (0x…) authorized to audit/slash; also stored in ENS auditors text record (comma-separated)."),
       stakeEth: z
         .string()
         .optional()
-        .describe('Stake in ETH as a decimal string (default "0.01"; must meet contract minimum)'),
+        .describe('ETH stake as decimal string (default "0.01"; must meet contract minimum).'),
+      skipEns: z
+        .boolean()
+        .optional()
+        .describe("If true, only SAIL contract register — no ENS subname (default false)."),
+      ensExtraRecords: z
+        .record(z.string())
+        .optional()
+        .describe(
+          "Optional ENS text keys merged after defaults, e.g. capabilities: \"commit,execute\", axl_peer_id: \"…\"",
+        ),
     },
-    async ({ ens, tier = 0, auditors, stakeEth = "0.01" }) => {
+    async ({ ens, tier = 0, auditors, stakeEth = "0.01", skipEns = false, ensExtraRecords }) => {
       const stakeWei = ethers.parseEther(String(stakeEth));
       const addrs = auditors.map((a) => {
         if (!ethers.isAddress(a)) {
@@ -77,9 +88,19 @@ export function createSailMcpServer(): McpServer {
         }
         return a as Address;
       });
+      const auditorStrs = auditors.map((a) => String(a).trim());
       const txHash = await sailContract.register(ens, tier as 0 | 1 | 2, addrs, stakeWei);
       await sailContract.waitForReceipt(txHash);
       const agent = await sailContract.getAgent(ens);
+
+      const ensSubname = await registerEnsSubnameForAgentIfApplicable({
+        ens,
+        tier: tier as 0 | 1 | 2,
+        auditors: auditorStrs,
+        skipEns,
+        ensExtraRecords: ensExtraRecords ?? undefined,
+      });
+
       return {
         content: [
           {
@@ -88,6 +109,8 @@ export function createSailMcpServer(): McpServer {
               txHash,
               etherscan: `https://sepolia.etherscan.io/tx/${txHash}`,
               ens,
+              tier,
+              stakeEth: String(stakeEth),
               agent: {
                 wallet: agent.wallet,
                 stake: agent.stake.toString(),
@@ -97,7 +120,12 @@ export function createSailMcpServer(): McpServer {
                 commitmentCount: agent.commitmentCount.toString(),
                 slashCount: agent.slashCount.toString(),
               },
-              note: "Agent registered. You can call sail_attest_inputs → sail_commit → sail_execute for this ens.",
+              ensSubname,
+              note: ensSubname
+                ? "SAIL registered; ENS subname tx(s) emitted — text records may finalize in the background (pendingRecords)."
+                : skipEns
+                  ? "SAIL registered (ENS skipped). Call sail_attest_inputs → sail_commit → sail_execute when ready."
+                  : "SAIL registered. No ENS subname step (name not under configured parent, or ENS failed — see server logs). Pipeline: sail_attest_inputs → sail_commit → sail_execute.",
             }),
           },
         ],

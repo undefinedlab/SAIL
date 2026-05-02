@@ -11,6 +11,7 @@
     "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit",
     "smoke": "tsx src/scripts/smoke.ts",
+    "test:reach": "tsx src/scripts/reachability.ts",
     "mcp": "tsx src/mcp/index.ts",
     "mcp:http": "MCP_TRANSPORT=http tsx src/mcp/index.ts",
     "mcp:http:prod": "MCP_TRANSPORT=http node dist/src/mcp/index.js",

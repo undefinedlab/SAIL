@@ -195,6 +195,8 @@ export async function registerAgent(input: {
   tier?: 0 | 1 | 2;
   auditors: string[];
   stakeEth?: string;
+  skipEns?: boolean;
+  ensExtraRecords?: Record<string, string>;
 }) {
   return jsonRequest<{
     txHash: `0x${string}`;

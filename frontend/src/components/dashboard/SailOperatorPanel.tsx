@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
-import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { TIER_LABELS } from "@/lib/sail-abi";
 import {
   attestInputs,
@@ -60,7 +59,10 @@ function friendlyError(raw: string): string {
   return raw.split("\n")[0].replace(/^Error:\s*/, "");
 }
 
-type Tab = "register" | "pipeline" | "monitor" | "identity" | "mesh";
+/** Three operator workspaces; Register/Monitor and Identity/Mesh use compact sub-tabs. */
+type PrimaryWorkspace = "agent" | "pipeline" | "network";
+type AgentSection = "register" | "monitor";
+type NetworkSection = "identity" | "mesh";
 
 function neuronToA0gi(neuron: string): string {
   try {
@@ -146,10 +148,12 @@ function shortPeer(peerId: string) {
 }
 
 export function SailOperatorPanel() {
-  const { address, isConnected, chain } = useAccount();
+  const { isConnected, chain } = useAccount();
   const backend = useBackendStatus();
 
-  const [tab, setTab] = useState<Tab>("register");
+  const [primary, setPrimary] = useState<PrimaryWorkspace>("pipeline");
+  const [agentSection, setAgentSection] = useState<AgentSection>("register");
+  const [networkSection, setNetworkSection] = useState<NetworkSection>("identity");
 
   const [computeProviders, setComputeProviders] = useState<ComputeProvider[]>([]);
   const [computeError, setComputeError] = useState<string | null>(null);
@@ -573,79 +577,114 @@ export function SailOperatorPanel() {
     }
   }
 
-  // Auto-refresh delegations when tab is mesh
+  // Auto-refresh delegations when Mesh is open
   useEffect(() => {
-    if (tab !== "mesh") return;
+    if (primary !== "network" || networkSection !== "mesh") return;
     if (backend.status !== "online") return;
 
     const id = setInterval(() => refreshDelegations(), 3000);
     refreshDelegations();
     return () => clearInterval(id);
-  }, [tab, backend.status]);
+  }, [primary, networkSection, backend.status]);
 
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
-  const tabCls = (value: Tab) =>
-    `px-4 py-2 text-xs font-medium border-b-2 transition-colors ${
-      tab === value
+  const primaryCls = (value: PrimaryWorkspace) =>
+    `rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] transition-colors ${
+      primary === value
+        ? "bg-[#05058a] text-white shadow-sm"
+        : "border border-[#05058a]/20 bg-white text-[#05058a]/80 hover:border-[#05058a]/45 hover:text-[#05058a]"
+    }`;
+
+  const subCls = (active: boolean) =>
+    `px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+      active
         ? "border-[#05058a] text-[#05058a]"
         : "border-transparent text-neutral-500 hover:text-neutral-800"
     }`;
 
   return (
     <div className="space-y-0 text-sm">
-      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-4 md:flex-row md:items-start md:justify-between">
-        <div className="space-y-2">
+      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-5 md:flex-row md:items-start md:justify-between md:gap-8">
+        <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h2 className="text-lg font-bold text-[#05058a]">Operator Console</h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              Backend{" "}
+            <h2 className="text-xl font-bold tracking-tight text-[#05058a] md:text-2xl">Operator</h2>
+            <p className="mt-1 max-w-xl text-sm leading-relaxed text-neutral-600">
+              Run the accountability pipeline, register and watch agents, then wire ENS and AXL when you are ready to mesh.
+            </p>
+          </div>
+          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+            <span className="inline-flex items-center gap-1.5">
               <StatusDot
                 status={backend.status}
                 label={
                   backend.status === "online"
-                    ? "online"
+                    ? "API"
                     : backend.status === "offline"
-                      ? "offline"
-                      : "checking…"
+                      ? "API down"
+                      : "API…"
                 }
               />
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2 text-[11px] text-neutral-500">
-            <span className="border border-neutral-200 px-2 py-1">
-              Expected chain: {expectedChain.name}
             </span>
-            {backend.contract ? (
-              <span className="border border-neutral-200 px-2 py-1">
-                Contract: {backend.contract.slice(0, 10)}…{backend.contract.slice(-6)}
-              </span>
-            ) : null}
+            <span className="text-neutral-300">·</span>
+            <span>{expectedChain.name}</span>
             {backend.axlOnline !== undefined ? (
-              <span className="border border-neutral-200 px-2 py-1">
-                AXL: {backend.axlOnline ? "online" : "offline"}
-              </span>
+              <>
+                <span className="text-neutral-300">·</span>
+                <span>AXL {backend.axlOnline ? "up" : "down"}</span>
+              </>
             ) : null}
-          </div>
+            {backend.contract ? (
+              <>
+                <span className="text-neutral-300">·</span>
+                <span className="font-mono text-[10px] text-neutral-400">
+                  {backend.contract.slice(0, 8)}…{backend.contract.slice(-6)}
+                </span>
+              </>
+            ) : null}
+          </p>
           {chainMismatch ? (
-            <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-              Wallet is connected to {chain?.name ?? "another chain"}. Switch to {expectedChain.name} before using write flows.
+            <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} in the top bar before submitting transactions.
             </p>
           ) : null}
         </div>
-        <ConnectButton showBalance={false} chainStatus="icon" />
+        <div className="flex shrink-0 flex-row flex-wrap items-center justify-start gap-2 md:justify-end">
+          <button type="button" className={primaryCls("agent")} onClick={() => setPrimary("agent")}>
+            Agent
+          </button>
+          <button type="button" className={primaryCls("pipeline")} onClick={() => setPrimary("pipeline")}>
+            Pipeline
+          </button>
+          <button type="button" className={primaryCls("network")} onClick={() => setPrimary("network")}>
+            Network
+          </button>
+        </div>
       </div>
 
-      <div className="flex flex-wrap border-b border-neutral-200">
-        <button className={tabCls("register")} onClick={() => setTab("register")}>Register</button>
-        <button className={tabCls("pipeline")} onClick={() => setTab("pipeline")}>Pipeline</button>
-        <button className={tabCls("monitor")} onClick={() => setTab("monitor")}>Monitor</button>
-        <button className={tabCls("identity")} onClick={() => setTab("identity")}>Identity</button>
-        <button className={tabCls("mesh")} onClick={() => setTab("mesh")}>Mesh</button>
-      </div>
+      {primary === "agent" ? (
+        <div className="flex gap-1 border-b border-neutral-200">
+          <button type="button" className={subCls(agentSection === "register")} onClick={() => setAgentSection("register")}>
+            Register
+          </button>
+          <button type="button" className={subCls(agentSection === "monitor")} onClick={() => setAgentSection("monitor")}>
+            Monitor
+          </button>
+        </div>
+      ) : null}
+      {primary === "network" ? (
+        <div className="flex gap-1 border-b border-neutral-200">
+          <button type="button" className={subCls(networkSection === "identity")} onClick={() => setNetworkSection("identity")}>
+            Identity
+          </button>
+          <button type="button" className={subCls(networkSection === "mesh")} onClick={() => setNetworkSection("mesh")}>
+            Mesh
+          </button>
+        </div>
+      ) : null}
 
       <div className="pt-5">
-        {tab === "register" && (
+        {primary === "agent" && agentSection === "register" && (
           <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Register a new AI agent with the SAIL contract. The backend operator wallet signs the transaction and locks the stake.
@@ -730,7 +769,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {tab === "pipeline" && (
+        {primary === "pipeline" && (
           <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Run the full SAIL pipeline: attest inputs → optional 0G Compute reasoning → Lit encrypt → 0G upload → SAIL anchor → execute gate.
@@ -959,7 +998,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {tab === "monitor" && (
+        {primary === "agent" && agentSection === "monitor" && (
           <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Look up any registered SAIL agent by ENS name and inspect the contract-level state that drives auditability.
@@ -1054,7 +1093,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {tab === "identity" && (
+        {primary === "network" && networkSection === "identity" && (
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
               <div>
@@ -1211,7 +1250,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {tab === "mesh" && (
+        {primary === "network" && networkSection === "mesh" && (
           <div className="grid gap-4 xl:grid-cols-3">
             {/* --- LEFT: Topology + Discovery --- */}
             <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
