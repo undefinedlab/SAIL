@@ -5,4 +5,5 @@ builder = "NIXPACKS"
 buildCommand = "npm run build"
 
 [deploy]
-startCommand = "npm start"
+# Avoid `npm start` so Railway's production npm config does not emit deprecation noise.
+startCommand = "node dist/src/index.js"

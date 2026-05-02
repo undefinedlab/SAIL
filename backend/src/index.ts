@@ -48,17 +48,25 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 async function boot() {
-  // Optionally auto-start AXL binary if configured
+  const wantedAutoStart = (process.env["AXL_AUTO_START"] ?? "").trim() === "true";
+  if (wantedAutoStart && process.env["NODE_ENV"] === "production" && !env.axl.autoStart) {
+    console.warn(
+      "[AXL] AXL_AUTO_START=true is ignored in production without AXL_AUTO_START_IN_PRODUCTION=true (needs Go 1.25+ at runtime). Use an external bridge or a custom image.",
+    );
+  }
+
   if (env.axl.autoStart) {
     console.log("[AXL] auto-start enabled — starting node…");
     await startAxlNode().catch((e) =>
       console.warn("[AXL] auto-start failed (non-fatal):", (e as Error).message),
     );
-  } else {
-    const alive = await axlAlive().catch(() => false);
-    console.log(`[AXL] bridge at ${env.axl.bridgeUrl} — ${alive ? "online" : "offline (start manually)"}`);
-    if (alive) startTaskRouter();
   }
+
+  const alive = await axlAlive().catch(() => false);
+  if (!env.axl.autoStart) {
+    console.log(`[AXL] bridge at ${env.axl.bridgeUrl} — ${alive ? "online" : "offline (start manually)"}`);
+  }
+  if (alive) startTaskRouter();
 
   app.listen(env.server.port, env.server.host, () => {
     console.log(`\nSAIL backend  http://${env.server.host}:${env.server.port}`);

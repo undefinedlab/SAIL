@@ -55,7 +55,7 @@ async function ensureGoInstalled(): Promise<void> {
     await execFile("go", ["version"]);
   } catch {
     throw new Error(
-      "Go 1.25.x is required to build the real AXL node. Install it with `brew install go` on macOS, then retry.",
+      "Go 1.25.x is required to build the AXL node (not found in PATH). macOS: brew install go. Linux: https://go.dev/dl/ or your distro's golang package, then retry.",
     );
   }
 }

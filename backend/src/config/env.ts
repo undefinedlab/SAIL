@@ -41,17 +41,20 @@ export const env = {
     computeProvider: optional("ZERO_G_COMPUTE_PROVIDER", ""),
   },
   lit: {
-    network: optional("LIT_NETWORK", "nagaDev"),
-    /** Chipotle REST API usage key — from dashboard.chipotle.litprotocol.com */
-    chipotleApiKey: optional("LIT_CHIPOTLE_API_KEY", ""),
-    /** PKP wallet_id created via POST /core/v1/create_wallet */
-    chipotlePkpId: optional("LIT_CHIPOTLE_PKP_ID", ""),
+    network: optional("LIT_NETWORK", "datil-test"),
   },
   axl: {
     /** URL of the local AXL HTTP bridge. Defaults to the AXL standard port. */
     bridgeUrl: optional("AXL_BRIDGE_URL", "http://localhost:9002"),
-    /** Set to "true" to auto-start the AXL binary on backend boot. */
-    autoStart: optional("AXL_AUTO_START", "false") === "true",
+    /**
+     * Auto-build and run the AXL node on boot (needs Go + git + network). On PaaS (e.g. Railway)
+     * this usually fails unless the image includes Go; set `AXL_AUTO_START=false` and use an external
+     * bridge, or set `AXL_AUTO_START_IN_PRODUCTION=true` when your runtime actually has Go 1.25+.
+     */
+    autoStart:
+      optional("AXL_AUTO_START", "false") === "true" &&
+      (process.env["NODE_ENV"] !== "production" ||
+        optional("AXL_AUTO_START_IN_PRODUCTION", "false") === "true"),
   },
   ens: {
     /** Parent ENS name the operator owns. Subnames are minted under it. */
