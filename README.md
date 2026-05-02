@@ -300,8 +300,8 @@ SAIL agents can delegate tasks to each other over the Gensyn AXL P2P mesh. The w
 ```
 Operator agent                      Worker agent
 (swarnim.sail.eth)                  (0x17swarn.sail.eth)
-      │                                     │
-      ├── sail_delegate ──────────────────► │
+      │                                    │
+      ├── sail_delegate ──────────────────►│
       │   (task, workerEns)                ├── sail_attest_inputs
       │                                    ├── 0G Compute inference
       │                                    ├── sail_commit  (anchors on-chain)
