@@ -53,6 +53,20 @@ export const env = {
     /** Parent ENS name the operator owns. Subnames are minted under it. */
     parentName: optional("ENS_PARENT_NAME", ""),
   },
+  mcpHttp: {
+    /** Streamable HTTP MCP (Cursor remote url). Default 3002 so it can run beside API on 3001. */
+    port: asInt("MCP_HTTP_PORT", 3002),
+    /** If set, require `Authorization: Bearer <token>` or `X-SAIL-MCP-Token`. */
+    token: optional("MCP_HTTP_TOKEN", ""),
+    /**
+     * Comma-separated Host header values allowed when binding to 0.0.0.0 (DNS rebinding).
+     * Example: `myapp.up.railway.app,localhost:3002`
+     */
+    allowedHosts: optional("MCP_ALLOWED_HOSTS", "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
 } as const;
 
 export type Env = typeof env;

@@ -1,11 +1,16 @@
 /**
  * MCP server entrypoint.
- * Connects via stdio (default) for use with Claude Desktop, Claude CLI,
- * LangChain MCP adapters, CrewAI, ElizaOS, and OpenClaw.
+ *
+ * - Default / stdio: Claude Desktop, local Cursor (`command` + `cwd`)
+ * - MCP_TRANSPORT=http: Streamable HTTP for Cursor `url` (remote or localhost)
  */
+import { startMcpHttpServer } from "./http-server.js";
 import { startMcpServer } from "./server.js";
 
-startMcpServer().catch((e) => {
+const mode = process.env["MCP_TRANSPORT"]?.toLowerCase();
+const start = mode === "http" || mode === "streamable" ? startMcpHttpServer : startMcpServer;
+
+start().catch((e) => {
   console.error("[MCP] fatal:", e);
   process.exit(1);
 });

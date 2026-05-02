@@ -28,7 +28,7 @@ High-level protocol architecture (from `docs/idea.md`):
 - **SAIL MCP server** exposes tools and routes commitments
 - **SAIL contract (EVM)** enforces commit-before-execute and registry/stake rules
 - **Lit Protocol** handles encryption keys and access conditions
-- **Filecoin / Storacha** stores encrypted blobs (CID anchored on-chain)
+- **0G / Storacha** stores encrypted blobs (CID anchored on-chain)
 - **ENS / AXL / x402** support identity, communication, and conditional payment
 
 Frontend responsibilities:

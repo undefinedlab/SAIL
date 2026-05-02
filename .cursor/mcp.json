@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "sail": {
+      "command": "npm",
+      "args": ["run", "mcp"],
+      "cwd": "${workspaceFolder}/backend",
+      "env": {
+        "DOTENV_CONFIG_PATH": "${workspaceFolder}/backend/.env.local"
+      }
+    }
+  }
+}

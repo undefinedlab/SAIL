@@ -1,0 +1,8 @@
+# Railway: set the service "Root Directory" to `backend` (this folder).
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "npm run build"
+
+[deploy]
+startCommand = "npm start"

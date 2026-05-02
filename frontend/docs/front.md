@@ -29,7 +29,7 @@ SAIL is a cryptographic accountability layer for AI agents operating on-chain: i
 
 ### Privacy + storage layer
 - Lit Protocol for key management/access conditions.
-- Filecoin/Storacha for encrypted blob persistence (CID anchored on-chain).
+- 0G/Storacha for encrypted blob persistence (CID anchored on-chain).
 
 ### Identity + coordination layer
 - ENS for agent identity/capabilities/discovery.

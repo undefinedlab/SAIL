@@ -1,17 +1,15 @@
 # SAIL — Updated Architecture
 ## Secure Agentic Intelligence Layer
 
-*Cryptographic accountability infrastructure for AI agents operating on-chain.*
+*Cryptographic accountability for AI agents operating on-chain.*
 
-**Hackathon:** ETHGlobal Open Agents 2026
-**Partner prizes targeted:** 0G · ENS · AXL (Gensyn)
 **Stack:** EVM (Base) · 0G Storage · 0G Compute · Lit Protocol · ENS · AXL · MCP
 
 ---
 
 ## What SAIL Is
 
-SAIL is a commit-before-execute enforcement layer for AI agents. For any action an agent takes that requires verifiability a treasury transfer, a DAO vote execution, a regulated trade, an agent-to-agent payment — SAIL produces an on-chain receipt that cryptographically binds:
+SAIL is a cryptographic accountability layer for AI agents. For any action an agent takes that requires verifiability as a treasury transfer, a DAO vote execution, a regulated trade, an agent-to-agent payment — SAIL produces an on-chain receipt that cryptographically binds:
 
 - **What the agent received** — the exact inputs before reasoning began
 - **What the agent committed to** — the decision and proposed action, locked before execution
@@ -38,16 +36,15 @@ Existing approaches place enforcement logic inside the operator's process — wh
 
 | Decision | v1 | Updated |
 |---|---|---|
-| Blob storage | Filecoin / Storacha | **0G Storage (KV + Log)** |
+| Blob storage | 0G / Storacha | **0G Storage (KV + Log)** |
 | Key management | Lit Protocol | **Lit Protocol — kept** |
 | Verifiable inference | Not addressed | **0G Compute sealed inference for ZK tier** |
 | Partner prizes | ENS · AXL · KeeperHub | **0G · ENS · AXL** |
 
-**Why replace Filecoin with 0G Storage:** 0G Storage is a better architectural fit. Filecoin is built for large long-lived blobs. 0G Storage's KV mode gives real-time commitment state lookup and Log mode gives an append-only tamper-evident audit trail — exactly what SAIL needs. Switching also opens the $15k 0G prize, the largest in the hackathon.
+**Why 0G Storage:** 0G Storage's KV mode gives real-time commitment state lookup and Log mode gives an append-only tamper-evident audit trail — exactly what SAIL needs. 
 
 **Why keep Lit Protocol:** Lit's threshold key custody is the reason no single party — not the operator, not SAIL's team — can unilaterally decrypt a commitment blob. Access conditions are tied directly to the SAIL contract: Lit nodes query `isAuthorized(auditorAddress)` before releasing the decryption key. This is what makes the audit flow trustless. Without Lit, key management falls back to the operator or SAIL infrastructure — neither of which can be trusted for the accountability guarantees SAIL makes.
 
-**Why drop KeeperHub:** The integration story ("SAIL is an MCP server, KeeperHub picks it up natively") is thin for a prize track that wants depth. 0G at $15k is a strictly better use of the same build effort.
 
 ---
 
