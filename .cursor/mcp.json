@@ -7,6 +7,9 @@
       "env": {
         "DOTENV_CONFIG_PATH": "${workspaceFolder}/backend/.env.local"
       }
+    },
+    "sail-production": {
+      "url": "https://sail-production-50ff.up.railway.app/mcp"
     }
   }
 }

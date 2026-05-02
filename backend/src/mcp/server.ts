@@ -1,7 +1,7 @@
 /**
  * SAIL MCP Server.
  *
- * Exposes the 6 SAIL pipeline tools to any MCP-compatible agent framework:
+ * Exposes the SAIL pipeline + registration tools to any MCP-compatible agent framework:
  *   CrewAI · LangChain · ElizaOS · OpenClaw · Claude · custom
  *
  * The LLM calls these tools exactly like any other tool during its reasoning
@@ -14,20 +14,25 @@
  *   MCP_TRANSPORT=http npm run mcp     → same as mcp:http
  *
  * Tools:
+ *   sail_register        On-chain agent registration (operator-signed; same as POST /api/register)
  *   sail_attest_inputs   Stage 01 — hash inputs before reasoning
  *   sail_commit          Stage 03 — Lit encrypt → 0G upload → SAIL anchor
  *   sail_execute         Stage 04 — contract-gated execution
  *   sail_deliver         Stage 05 — send tx via AXL encrypted mesh
  *   sail_discover        Discovery — find agents by capability via ENS
  *   sail_delegate        Delegation — open AXL channel, send task to worker
+ *   sail_receive_messages Poll AXL inbox
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { ethers } from "ethers";
+import type { Address } from "viem";
 import * as pipeline from "../api/pipeline.js";
 import * as axl from "../../gensyn/client.js";
 import * as ens from "../../ens/registry.js";
+import * as sailContract from "../contract/sail.js";
 import { SAIL_ADDRESS } from "../contract/sail.js";
 
 export function createSailMcpServer(): McpServer {
@@ -35,6 +40,69 @@ export function createSailMcpServer(): McpServer {
     name: "sail",
     version: "1.0.0",
   });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Registration — sail_register (operator wallet; agents[ens].wallet = operator)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  mcp.tool(
+    "sail_register",
+    "Register a new agent on the SAIL contract. Signs with the server operator key — on-chain agent.wallet becomes the operator address (same as POST /api/register). Requires a unique ENS string (e.g. myagent.sail.eth). Mint ENS subname separately via dashboard or POST /api/ens/register if you use *.sail.eth.",
+    {
+      ens: z
+        .string()
+        .describe("Full ENS name for this agent (must not already be registered)"),
+      tier: z
+        .number()
+        .int()
+        .min(0)
+        .max(2)
+        .optional()
+        .describe("0 = optimistic, 1 = ZK, 2 = TEE (default 0)"),
+      auditors: z
+        .array(z.string())
+        .min(1)
+        .describe("Ethereum addresses authorized to audit/slash (0x-prefixed hex)"),
+      stakeEth: z
+        .string()
+        .optional()
+        .describe('Stake in ETH as a decimal string (default "0.01"; must meet contract minimum)'),
+    },
+    async ({ ens, tier = 0, auditors, stakeEth = "0.01" }) => {
+      const stakeWei = ethers.parseEther(String(stakeEth));
+      const addrs = auditors.map((a) => {
+        if (!ethers.isAddress(a)) {
+          throw new Error(`Invalid auditor address: ${a}`);
+        }
+        return a as Address;
+      });
+      const txHash = await sailContract.register(ens, tier as 0 | 1 | 2, addrs, stakeWei);
+      await sailContract.waitForReceipt(txHash);
+      const agent = await sailContract.getAgent(ens);
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              txHash,
+              etherscan: `https://sepolia.etherscan.io/tx/${txHash}`,
+              ens,
+              agent: {
+                wallet: agent.wallet,
+                stake: agent.stake.toString(),
+                tier: agent.tier,
+                active: agent.active,
+                auditors: agent.auditors,
+                commitmentCount: agent.commitmentCount.toString(),
+                slashCount: agent.slashCount.toString(),
+              },
+              note: "Agent registered. You can call sail_attest_inputs → sail_commit → sail_execute for this ens.",
+            }),
+          },
+        ],
+      };
+    },
+  );
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Stage 01 — sail_attest_inputs
