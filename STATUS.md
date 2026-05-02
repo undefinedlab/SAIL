@@ -223,9 +223,10 @@ frontend/src/
 Transport: stdio  
 Start: `npm run mcp`
 
-**6 tools exposed to agent frameworks:**
+**Tools exposed to agent frameworks:**
 | Tool | Description |
 |---|---|
+| `sail_register` | On-chain agent registration (operator wallet) |
 | `sail_attest_inputs` | Hash inputs → inputHash |
 | `sail_commit` | Full commit: encrypt + upload + anchor |
 | `sail_execute` | Execute through contract gate |

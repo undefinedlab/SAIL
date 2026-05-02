@@ -84,6 +84,14 @@ async function handleMcpStreamableHttp(req: Request, res: Response): Promise<voi
   }
 
   const record = sessions.get(sessionIdHeader)!;
+
+  // Proxies (Railway, etc.) often drop idle SSE without notifying the SDK. The transport
+  // then still thinks a standalone GET stream exists → 409 on reconnect or "Failed to open
+  // SSE stream". Tear down any stale mapping before a new GET so Cursor can reconnect.
+  if (req.method === "GET") {
+    record.transport.closeStandaloneSSEStream();
+  }
+
   await record.transport.handleRequest(
     nodeReq,
     nodeRes,
