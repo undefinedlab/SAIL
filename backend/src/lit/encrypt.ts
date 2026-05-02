@@ -1,122 +1,200 @@
 /**
- * Lit Protocol — server-side encryption for SAIL commitment blobs.
+ * Lit Protocol Chipotle — server-side encryption for SAIL commitment blobs.
  *
- * Falls back to AES-256-GCM when Lit nodes are unreachable (e.g. dev env),
- * so the rest of the pipeline (0G upload + on-chain anchor) always works.
+ * Chipotle (Lit v3) is a pure REST API — no SDK, no LitNodeClient, no network config.
+ * Encryption/decryption run inside a Lit Action (JS in a TEE) keyed to a PKP wallet.
+ *
+ * Setup (one-time):
+ *   1. Create account + fund ($5 min) at dashboard.chipotle.litprotocol.com
+ *   2. Create a PKP: POST /core/v1/create_wallet  → save wallet_id as LIT_CHIPOTLE_PKP_ID
+ *   3. Create usage key: POST /core/v1/add_usage_api_key → save as LIT_CHIPOTLE_API_KEY
+ *   Run: npm run setup-lit  (automates steps 2-3 if LIT_CHIPOTLE_ACCOUNT_KEY is set)
+ *
+ * Falls back to AES-256-GCM when Chipotle credentials are not configured.
  */
 
-import { LitNodeClientNodeJs } from "@lit-protocol/lit-node-client-nodejs";
-import { LIT_NETWORK } from "@lit-protocol/constants";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { env } from "../config/env.js";
 
-let clientPromise: Promise<LitNodeClientNodeJs | null> | null = null;
+const CHIPOTLE_BASE = "https://api.chipotle.litprotocol.com/core/v1";
 
-function resolveNetwork(): keyof typeof LIT_NETWORK | string {
-  return env.lit.network;
+// Lit Action that encrypts a message with a PKP
+const ENCRYPT_ACTION = `
+async function main({ pkpId, message }) {
+  const ciphertext = await Lit.Actions.Encrypt({ pkpId, message });
+  Lit.Actions.setResponse({ response: JSON.stringify({ ciphertext }) });
 }
+`;
 
-function getClient(): Promise<LitNodeClientNodeJs | null> {
-  if (!clientPromise) {
-    clientPromise = (async () => {
-      try {
-        const client = new LitNodeClientNodeJs({
-          litNetwork: resolveNetwork() as never,
-          debug: false,
-        });
-        await client.connect();
-        return client;
-      } catch (err) {
-        console.warn("[Lit] Could not connect to Lit network, using AES fallback:", (err as Error).message);
-        return null;
-      }
-    })();
-  }
-  return clientPromise;
-}
-
-export type SailAccessConditions = ReturnType<typeof sailAccessConditions>;
-
-export function sailAccessConditions(agentEns: string) {
-  return [
-    {
-      conditionType: "evmContract" as const,
-      contractAddress: env.sail.contractAddress,
-      chain: "sepolia" as const,
-      functionName: "isAuthorized",
-      functionParams: [":userAddress", agentEns],
-      functionAbi: {
+// Lit Action that decrypts — enforces SAIL.isAuthorized() before releasing plaintext
+const DECRYPT_ACTION = `
+async function main({ pkpId, ciphertext, agentEns, auditorAddress, contractAddress }) {
+  if (agentEns && auditorAddress && contractAddress) {
+    const isAuth = await Lit.Actions.callContract({
+      chain: "sepolia",
+      contractAddress,
+      abi: [{
         name: "isAuthorized",
         type: "function",
         stateMutability: "view",
-        inputs: [
-          { name: "auditor", type: "address" },
-          { name: "ens", type: "string" },
-        ],
-        outputs: [{ name: "", type: "bool" }],
-      },
-      returnValueTest: { key: "", comparator: "=" as const, value: "true" },
-    },
-  ];
+        inputs: [{ name: "auditor", type: "address" }, { name: "ens", type: "string" }],
+        outputs: [{ name: "", type: "bool" }]
+      }],
+      functionName: "isAuthorized",
+      args: [auditorAddress, agentEns]
+    });
+    if (!isAuth) {
+      Lit.Actions.setResponse({ response: JSON.stringify({ error: "Not authorized" }) });
+      return;
+    }
+  }
+  const plaintext = await Lit.Actions.Decrypt({ pkpId, ciphertext });
+  Lit.Actions.setResponse({ response: JSON.stringify({ plaintext }) });
 }
+`;
+
+async function chipotleAction(
+  code: string,
+  jsParams: Record<string, unknown>,
+): Promise<unknown> {
+  const res = await fetch(`${CHIPOTLE_BASE}/lit_action`, {
+    method: "POST",
+    headers: {
+      "X-Api-Key": env.lit.chipotleApiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ code, js_params: jsParams }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Chipotle API ${res.status}: ${body}`);
+  }
+
+  const data = await res.json() as { response: unknown; logs?: string };
+  // response may be a pre-parsed object or a JSON string depending on Chipotle version
+  if (typeof data.response === "string") {
+    try { return JSON.parse(data.response); } catch { return data.response; }
+  }
+  return data.response;
+}
+
+// ---- Public types -----------------------------------------------------------
+
+export type SailAccessConditions = {
+  contractAddress: string;
+  agentEns: string;
+};
 
 export type EncryptedBlob = {
   ciphertext: string;
   dataToEncryptHash: string;
   accessConditions: SailAccessConditions;
-  /** Present when Lit is unavailable; auditors use this key to decrypt locally. */
+  /** Present when Chipotle is unavailable — used by AES fallback decrypt */
   fallbackKey?: string;
+  /** "chipotle" or "aes-fallback" */
+  encryptionMethod?: string;
 };
 
-/**
- * Encrypt a plaintext commitment blob.
- * Uses Lit Protocol when available; falls back to AES-256-GCM otherwise.
- */
-export async function encryptCommitmentBlob(
-  plaintext: Uint8Array,
-  agentEns: string,
-): Promise<EncryptedBlob> {
-  const client = await getClient();
-  const accessConditions = sailAccessConditions(agentEns);
+function sailAccessConditions(agentEns: string): SailAccessConditions {
+  return {
+    contractAddress: env.sail.contractAddress,
+    agentEns,
+  };
+}
 
-  if (client) {
-    const { ciphertext, dataToEncryptHash } = await client.encrypt({
-      evmContractConditions: accessConditions as never,
-      dataToEncrypt: plaintext,
-    });
-    return { ciphertext, dataToEncryptHash, accessConditions };
-  }
+// ---- Chipotle encrypt -------------------------------------------------------
 
-  // AES-256-GCM fallback — still provides confidentiality, just without
-  // Lit's threshold key management and on-chain access conditions.
+async function chipotleEncrypt(plaintext: Uint8Array): Promise<string> {
+  const message = Buffer.from(plaintext).toString("base64");
+  const result = await chipotleAction(ENCRYPT_ACTION, {
+    pkpId: env.lit.chipotlePkpId,
+    message,
+  }) as { ciphertext: string };
+  return result.ciphertext;
+}
+
+// ---- AES-256-GCM fallback ---------------------------------------------------
+
+function aesEncrypt(plaintext: Uint8Array): { ciphertext: string; fallbackKey: string } {
   const key = randomBytes(32);
   const iv  = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const enc = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
+  const ciphertext  = Buffer.concat([iv, tag, enc]).toString("base64");
+  const fallbackKey = Buffer.concat([key, iv]).toString("hex");
+  return { ciphertext, fallbackKey };
+}
 
-  const ciphertext     = Buffer.concat([iv, tag, enc]).toString("base64");
+// ---- Main API ---------------------------------------------------------------
+
+/**
+ * Encrypt a plaintext commitment blob.
+ * Uses Lit Chipotle when credentials are configured; falls back to AES-256-GCM.
+ */
+export async function encryptCommitmentBlob(
+  plaintext: Uint8Array,
+  agentEns: string,
+): Promise<EncryptedBlob> {
+  const accessConditions = sailAccessConditions(agentEns);
   const dataToEncryptHash = Buffer.from(plaintext).toString("hex").slice(0, 64);
-  const fallbackKey    = Buffer.concat([key, iv]).toString("hex");
 
+  // Try Chipotle if credentials are set
+  if (env.lit.chipotleApiKey && env.lit.chipotlePkpId) {
+    try {
+      const ciphertext = await chipotleEncrypt(plaintext);
+      console.log("[Lit] Chipotle encryption succeeded");
+      return { ciphertext, dataToEncryptHash, accessConditions, encryptionMethod: "chipotle" };
+    } catch (err) {
+      console.warn("[Lit] Chipotle encryption failed, using AES fallback:", (err as Error).message);
+    }
+  } else {
+    console.warn("[Lit] Chipotle credentials not set (LIT_CHIPOTLE_API_KEY / LIT_CHIPOTLE_PKP_ID) — using AES fallback");
+  }
+
+  // AES-256-GCM fallback
+  const { ciphertext, fallbackKey } = aesEncrypt(plaintext);
   console.warn("[Lit] AES fallback used — fallbackKey stored in blob metadata");
-  return { ciphertext, dataToEncryptHash, accessConditions, fallbackKey };
+  return { ciphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "aes-fallback" };
 }
 
 /**
- * Decrypt AES-256-GCM ciphertext produced by encryptCommitmentBlob fallback (base64(iv||tag||enc)).
- * `fallbackKeyHex` is 64 hex chars (32-byte key) + 24 hex chars (12-byte IV) = 88 chars, as emitted by the fallback encryptor.
+ * Decrypt via Lit Chipotle (enforces SAIL.isAuthorized on-chain inside the action).
+ */
+export async function chipotleDecrypt(
+  ciphertext: string,
+  agentEns: string,
+  auditorAddress?: string,
+): Promise<Uint8Array> {
+  if (!env.lit.chipotleApiKey || !env.lit.chipotlePkpId) {
+    throw new Error("Chipotle credentials not configured");
+  }
+
+  const result = await chipotleAction(DECRYPT_ACTION, {
+    pkpId: env.lit.chipotlePkpId,
+    ciphertext,
+    agentEns,
+    auditorAddress: auditorAddress ?? "",
+    contractAddress: env.sail.contractAddress,
+  }) as { plaintext?: string; error?: string };
+
+  if (result.error) throw new Error(`Chipotle decrypt denied: ${result.error}`);
+  if (!result.plaintext) throw new Error("Chipotle decrypt returned no plaintext");
+
+  return new Uint8Array(Buffer.from(result.plaintext, "base64"));
+}
+
+/**
+ * Decrypt AES-256-GCM fallback blob.
+ * `fallbackKeyHex` = 64 hex chars (32-byte key) + 24 hex chars (12-byte IV).
  */
 export function decryptAesFallbackBlob(ciphertextB64: string, fallbackKeyHex: string): Uint8Array {
   const key = Buffer.from(fallbackKeyHex.slice(0, 64), "hex");
-  if (key.length !== 32) {
-    throw new Error("fallbackKey must start with 64 hex chars (32-byte AES key)");
-  }
+  if (key.length !== 32) throw new Error("fallbackKey must start with 64 hex chars (32-byte AES key)");
   const raw = Buffer.from(ciphertextB64, "base64");
-  if (raw.length < 12 + 16) {
-    throw new Error("ciphertext too short for AES-GCM (iv + tag + data)");
-  }
-  const iv = raw.subarray(0, 12);
+  if (raw.length < 12 + 16) throw new Error("ciphertext too short for AES-GCM (iv + tag + data)");
+  const iv  = raw.subarray(0, 12);
   const tag = raw.subarray(12, 28);
   const enc = raw.subarray(28);
   const decipher = createDecipheriv("aes-256-gcm", key, iv);

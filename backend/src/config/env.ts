@@ -41,7 +41,11 @@ export const env = {
     computeProvider: optional("ZERO_G_COMPUTE_PROVIDER", ""),
   },
   lit: {
-    network: optional("LIT_NETWORK", "datil-test"),
+    network: optional("LIT_NETWORK", "nagaDev"),
+    /** Chipotle REST API usage key — from dashboard.chipotle.litprotocol.com */
+    chipotleApiKey: optional("LIT_CHIPOTLE_API_KEY", ""),
+    /** PKP wallet_id created via POST /core/v1/create_wallet */
+    chipotlePkpId: optional("LIT_CHIPOTLE_PKP_ID", ""),
   },
   axl: {
     /** URL of the local AXL HTTP bridge. Defaults to the AXL standard port. */

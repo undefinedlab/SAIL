@@ -114,10 +114,9 @@ export async function commit(input: CommitInput): Promise<CommitResult> {
     ciphertext: encrypted.ciphertext,
     dataToEncryptHash: encrypted.dataToEncryptHash,
     accessConditions: encrypted.accessConditions,
+    encryptionMethod: encrypted.encryptionMethod ?? "aes-fallback",
   };
-  if (encrypted.fallbackKey) {
-    wire["fallbackKey"] = encrypted.fallbackKey;
-  }
+  if (encrypted.fallbackKey) wire["fallbackKey"] = encrypted.fallbackKey;
   const wireBlob = new TextEncoder().encode(JSON.stringify(wire));
   const cid = await storage.uploadBlob(wireBlob);
 
