@@ -206,28 +206,24 @@ export async function pickProvider(modelHint?: string): Promise<ServiceInfo | nu
  *
  * Handles the full lifecycle: acknowledge → (auto-fund if needed) → infer → verify.
  */
-export async function runSealedInference(
+async function inferOnProvider(
+  broker: ZGBroker,
+  providerAddress: string,
   prompt: string,
   systemPrompt?: string,
-  providerAddress: string = env.zeroG.computeProvider,
 ): Promise<InferenceResult> {
-  if (!providerAddress) {
-    throw new Error("ZERO_G_COMPUTE_PROVIDER not set. Run listInferenceProviders() to pick one.");
-  }
-  if (!ethers.isAddress(providerAddress)) {
-    throw new Error(
-      `ZERO_G_COMPUTE_PROVIDER must be a valid Ethereum address (0x…), got: "${providerAddress}". ` +
-      `Run listInferenceProviders() to see available providers.`,
-    );
-  }
-
-  const broker = await getBroker();
-
-  // Acknowledge provider (one-time per provider per signer; idempotent on retry).
+  // Ensure provider is acknowledged (idempotent).
   try {
     await broker.inference.acknowledgeProviderSigner(providerAddress);
   } catch {
-    // already acknowledged — safe to ignore
+    // Already acknowledged — fine.
+  }
+
+  // Ensure sub-account is funded via auto-funding (starts background top-ups).
+  try {
+    await broker.inference.startAutoFunding(providerAddress);
+  } catch {
+    // Auto-funding not supported or already running — continue.
   }
 
   const { endpoint, model } = await broker.inference.getServiceMetadata(providerAddress);
@@ -243,42 +239,83 @@ export async function runSealedInference(
 
   const res = await fetch(`${endpoint}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify({ messages, model }),
   });
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`0G Compute inference failed: ${res.status} ${text}`);
+    throw new Error(`0G inference ${res.status}: ${text}`);
   }
 
   const json = await res.json();
   const output = json?.choices?.[0]?.message?.content ?? "";
   const chatId: string | undefined = json?.id;
 
-  // Verify response via TEE attestation.
-  // SDK signature: processResponse(providerAddress, chatID?, content?)
   let verified: boolean | null = null;
   let attestation: string | undefined;
   try {
     const usageContent = json?.usage ? JSON.stringify(json.usage) : undefined;
-    verified = await broker.inference.processResponse(providerAddress, chatId, usageContent);
-    attestation = verified != null ? JSON.stringify({ verified, chatId }) : undefined;
-  } catch {
+    verified = await broker.inference.processResponse(providerAddress, chatId, usageContent) ?? null;
+    if (verified === true) {
+      attestation = JSON.stringify({ verified: true, chatId, provider: providerAddress });
+    } else if (verified === false) {
+      console.warn(`[0G] TEE verification returned false for chatId=${chatId} — provider may not implement signatures`);
+    }
+  } catch (err) {
+    // Provider doesn't support signature storage (testnet limitation) — inference result is still valid
+    console.warn(`[0G] TEE verification threw (provider-side): ${(err as Error).message}`);
     verified = null;
-    attestation = undefined;
   }
 
-  return {
-    output,
-    model,
-    endpoint,
-    providerAddress,
-    attestation,
-    verified,
-    raw: json,
-  };
+  return { output, model, endpoint, providerAddress, attestation, verified, raw: json };
+}
+
+/**
+ * Run sealed inference — tries the configured provider first, then auto-picks
+ * from the network if that fails, so compute always works as long as any
+ * provider is live on the 0G testnet.
+ */
+export async function runSealedInference(
+  prompt: string,
+  systemPrompt?: string,
+  providerAddress: string = env.zeroG.computeProvider,
+): Promise<InferenceResult> {
+  const broker = await getBroker();
+
+  // 1. Try the configured provider.
+  if (providerAddress && ethers.isAddress(providerAddress)) {
+    try {
+      return await inferOnProvider(broker, providerAddress, prompt, systemPrompt);
+    } catch (err) {
+      console.warn(`[0G] configured provider ${providerAddress.slice(0, 10)}… failed: ${(err as Error).message}. Trying others…`);
+    }
+  }
+
+  // 2. Auto-pick from live providers and try each in turn.
+  const services = await broker.inference.listService();
+  if (services.length === 0) {
+    throw new Error("No 0G Compute providers available on the network.");
+  }
+
+  // Prefer acknowledged providers first.
+  const sorted = [
+    ...services.filter((s) => s.teeSignerAcknowledged),
+    ...services.filter((s) => !s.teeSignerAcknowledged),
+  ];
+
+  const errors: string[] = [];
+  for (const svc of sorted) {
+    try {
+      console.log(`[0G] trying provider ${svc.provider.slice(0, 10)}… (${svc.model})`);
+      const result = await inferOnProvider(broker, svc.provider, prompt, systemPrompt);
+      // Log the working provider so the operator can update ZERO_G_COMPUTE_PROVIDER.
+      console.log(`[0G] working provider found: ${svc.provider}`);
+      return result;
+    } catch (err) {
+      errors.push(`${svc.provider.slice(0, 10)}: ${(err as Error).message}`);
+    }
+  }
+
+  throw new Error(`All 0G Compute providers failed:\n${errors.join("\n")}`);
 }

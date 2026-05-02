@@ -153,7 +153,7 @@ async function processIncomingTask(msg: axl.ReceivedMessage): Promise<void> {
       txHash: commit.txHash,
       output: reasoning.output,
       model: reasoning.model,
-      verified: !!reasoning.attestation, // attestation present = ZK-verified
+      verified: reasoning.verified ?? null,
       timestamp: Date.now(),
     };
 

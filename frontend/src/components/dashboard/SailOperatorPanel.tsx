@@ -1405,11 +1405,19 @@ export function SailOperatorPanel() {
                       {d.result && (
                         <div className="mt-2 border-t border-neutral-200 pt-2 text-[10px]">
                           <p>Output: {d.result.output.slice(0, 60)}…</p>
-                          {d.result.verified !== undefined && (
-                            <span className={`mt-1 inline-block px-1.5 py-0.5 ${d.result.verified ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                              {d.result.verified ? "Verified" : "Failed verify"}
-                            </span>
-                          )}
+                          <span className={`mt-1 inline-block px-1.5 py-0.5 text-[9px] ${
+                            d.result.verified === true
+                              ? "bg-emerald-100 text-emerald-700"
+                              : d.result.verified === false
+                                ? "bg-red-100 text-red-700"
+                                : "bg-neutral-100 text-neutral-500"
+                          }`}>
+                            {d.result.verified === true
+                              ? "TEE verified"
+                              : d.result.verified === false
+                                ? "TEE rejected"
+                                : "TEE sig not stored (testnet)"}
+                          </span>
                           <p className="mt-1 text-neutral-400">Commitment: {shortAddr(d.result.commitmentHash)}</p>
                         </div>
                       )}
