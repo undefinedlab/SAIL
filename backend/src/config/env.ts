@@ -21,6 +21,17 @@ function asInt(name: string, fallback: number): number {
   return n;
 }
 
+/** Optional block number for `eth_getLogs` (decimal or `0x` hex). Unset = from genesis (can break on cheap RPCs). */
+function optionalBigIntBlock(name: string, fallback: bigint): bigint {
+  const v = process.env[name];
+  if (!v || !v.trim()) return fallback;
+  try {
+    return BigInt(v.trim());
+  } catch {
+    throw new Error(`Env var ${name} must be a decimal or 0x-prefixed block number: ${v}`);
+  }
+}
+
 export const env = {
   server: {
     port: asInt("PORT", 3001),
@@ -36,6 +47,11 @@ export const env = {
     chainId: asInt("SAIL_CHAIN_ID", 11155111),
     rpcUrl: required("ETH_SEPOLIA_RPC_URL"),
     operatorKey: required("OPERATOR_PRIVATE_KEY"),
+    /**
+     * Lower bound for CommitmentPosted log queries. Public RPCs often reject `eth_getLogs` from block 0
+     * or rate-limit parallel calls — set this to the block where SAIL was deployed (or a recent safe height).
+     */
+    logsFromBlock: optionalBigIntBlock("SAIL_LOGS_FROM_BLOCK", 0n),
   },
   zeroG: {
     rpcUrl: optional("ZERO_G_RPC_URL", "https://evmrpc-testnet.0g.ai"),

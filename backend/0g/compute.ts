@@ -253,19 +253,49 @@ async function inferOnProvider(
   const chatId: string | undefined = json?.id;
 
   let verified: boolean | null = null;
+  let teeError: string | undefined;
   let attestation: string | undefined;
   try {
     const usageContent = json?.usage ? JSON.stringify(json.usage) : undefined;
     verified = await broker.inference.processResponse(providerAddress, chatId, usageContent) ?? null;
     if (verified === true) {
-      attestation = JSON.stringify({ verified: true, chatId, provider: providerAddress });
+      attestation = JSON.stringify({
+        kind: "0g_tee",
+        verified: true,
+        chatId,
+        provider: providerAddress,
+      });
     } else if (verified === false) {
       console.warn(`[0G] TEE verification returned false for chatId=${chatId} — provider may not implement signatures`);
     }
   } catch (err) {
     // Provider doesn't support signature storage (testnet limitation) — inference result is still valid
-    console.warn(`[0G] TEE verification threw (provider-side): ${(err as Error).message}`);
+    teeError = (err as Error).message;
+    console.warn(`[0G] TEE verification threw (provider-side): ${teeError}`);
     verified = null;
+  }
+
+  /** When the SDK/TEE path yields no proof (common on testnet), still anchor output binding in the commitment blob. */
+  if (!attestation) {
+    const outputHash = ethers.keccak256(ethers.toUtf8Bytes(output));
+    attestation = JSON.stringify({
+      kind: "0g_compute_receipt_v1",
+      teeVerified: verified === true,
+      teeVerificationNote:
+        verified === true
+          ? "unexpected: tee path should have set kind 0g_tee"
+          : teeError
+            ? `processResponse failed: ${teeError}`
+            : verified === false
+              ? "processResponse returned false — no provider signature"
+              : "no TEE proof on this network run — receipt binds output hash only",
+      chatId: chatId ?? null,
+      provider: providerAddress,
+      model,
+      endpoint,
+      outputHash,
+      usage: json?.usage ?? null,
+    });
   }
 
   return { output, model, endpoint, providerAddress, attestation, verified, raw: json };

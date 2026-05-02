@@ -41,12 +41,8 @@ type AuditResult = {
   note: string;
 };
 
-type SailAuditorPanelProps = {
-  activeTab: AuditorWorkspaceTab;
-  onTabChange: (tab: AuditorWorkspaceTab) => void;
-};
-
-export function SailAuditorPanel({ activeTab: tab, onTabChange: setTab }: SailAuditorPanelProps) {
+export function SailAuditorPanel() {
+  const [tab, setTab] = useState<AuditorWorkspaceTab>("lookup");
   const { isConnected, chain } = useAccount();
   const backend = useBackendStatus();
 
@@ -150,15 +146,38 @@ export function SailAuditorPanel({ activeTab: tab, onTabChange: setTab }: SailAu
 
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
-  return (
-    <div className="text-sm">
-      {chainMismatch ? (
-        <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} before any slash transaction.
-        </p>
-      ) : null}
+  const tabCls = (value: AuditorWorkspaceTab) =>
+    `rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] transition-colors ${
+      tab === value
+        ? "bg-[#05058a] text-white shadow-sm"
+        : "border border-[#05058a]/20 bg-white text-[#05058a]/80 hover:border-[#05058a]/45 hover:text-[#05058a]"
+    }`;
 
-      <div className="grid gap-6 pt-5 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-stretch">
+  return (
+    <div className="space-y-0 text-sm">
+      <div className="space-y-3 border-b border-neutral-200 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <IntegrationStatusCards backend={backend} variant="compact" />
+          <nav className="flex shrink-0 flex-wrap items-center justify-end gap-2" aria-label="Auditor steps">
+            <button type="button" className={tabCls("lookup")} onClick={() => setTab("lookup")}>
+              Lookup
+            </button>
+            <button type="button" className={tabCls("audit")} onClick={() => setTab("audit")}>
+              Audit
+            </button>
+            <button type="button" className={tabCls("slash")} onClick={() => setTab("slash")}>
+              Slash
+            </button>
+          </nav>
+        </div>
+        {chainMismatch ? (
+          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} before any slash transaction.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="pt-5">
         <main className="min-w-0">
           {tab === "lookup" && (
             <div className="space-y-4">
@@ -397,13 +416,6 @@ export function SailAuditorPanel({ activeTab: tab, onTabChange: setTab }: SailAu
             </div>
           )}
         </main>
-
-        <aside className="flex min-h-0 flex-col lg:h-full lg:min-h-[12rem]">
-          <div className="hidden min-h-8 flex-1 lg:block" aria-hidden />
-          <div className="mt-6 flex justify-end border-t border-neutral-200 pt-4 lg:mt-0 lg:border-t-0 lg:pt-0">
-            <IntegrationStatusCards backend={backend} variant="compact" compactToolbar={false} />
-          </div>
-        </aside>
       </div>
     </div>
   );

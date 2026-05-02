@@ -104,7 +104,7 @@ export async function getCommitmentPostedLogsForEns(ens: string) {
     address: SAIL_ADDRESS,
     event: commitmentPostedEvent,
     args: { ens },
-    fromBlock: 0n,
+    fromBlock: env.sail.logsFromBlock,
     toBlock: "latest",
   });
 }
@@ -133,12 +133,19 @@ async function mergeCommitmentPostedLogsForVariants(variants: string[]) {
   const merged: Awaited<ReturnType<typeof getCommitmentPostedLogsForEns>> = [];
   const seen = new Set<string>();
   for (const v of uniq) {
-    const chunk = await getCommitmentPostedLogsForEns(v);
-    for (const log of chunk) {
-      const k = `${log.transactionHash}-${log.logIndex}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      merged.push(log);
+    try {
+      const chunk = await getCommitmentPostedLogsForEns(v);
+      for (const log of chunk) {
+        const k = `${log.transactionHash}-${log.logIndex}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push(log);
+      }
+    } catch (err) {
+      console.warn(
+        `[sail] CommitmentPosted getLogs failed for "${v}":`,
+        (err as Error).message,
+      );
     }
   }
   return merged;
@@ -149,7 +156,7 @@ async function scanCommitmentPostedMatchingEns(ensCandidates: Set<string>) {
   const all = await publicClient.getLogs({
     address: SAIL_ADDRESS,
     event: commitmentPostedEvent,
-    fromBlock: 0n,
+    fromBlock: env.sail.logsFromBlock,
     toBlock: "latest",
   });
   const matched: typeof all = [];
@@ -225,8 +232,10 @@ export async function enrichCommitmentPostedLog(log: {
 export async function listCommitmentsForAgent(ensInput: string) {
   const { raw, canonical } = resolveEnsInput(ensInput);
 
-  let resolvedKey = canonical;
-  let agent = await getAgent(canonical);
+  // Same resolution order as /api/axl/discover: try the exact input first, then ENSIP-15 canonical.
+  const candidateKeys = [...new Set([raw, canonical].filter(Boolean))];
+  let resolvedKey = candidateKeys[0] ?? raw;
+  let agent = await getAgent(resolvedKey);
   let a = agent as {
     wallet: Address;
     stake: bigint;
@@ -237,10 +246,11 @@ export async function listCommitmentsForAgent(ensInput: string) {
     slashCount: bigint;
   };
 
-  if (agentWalletIsEmpty(a.wallet) && raw !== canonical) {
-    agent = await getAgent(raw);
+  if (agentWalletIsEmpty(a.wallet) && candidateKeys.length > 1) {
+    const alt = candidateKeys[1]!;
+    agent = await getAgent(alt);
     a = agent as typeof a;
-    resolvedKey = raw;
+    resolvedKey = alt;
   }
 
   if (agentWalletIsEmpty(a.wallet)) {
@@ -251,7 +261,15 @@ export async function listCommitmentsForAgent(ensInput: string) {
   let logs = await mergeCommitmentPostedLogsForVariants([resolvedKey, canonical, raw]);
 
   if (logs.length === 0 && a.commitmentCount > 0n) {
-    logs = await scanCommitmentPostedMatchingEns(new Set([resolvedKey, canonical, raw]));
+    try {
+      logs = await scanCommitmentPostedMatchingEns(new Set([resolvedKey, canonical, raw]));
+    } catch (err) {
+      const hint =
+        env.sail.logsFromBlock === 0n
+          ? " Set SAIL_LOGS_FROM_BLOCK to the deployment block (or a recent height) if your RPC rejects wide getLogs."
+          : "";
+      throw new Error(`${(err as Error).message}${hint}`);
+    }
   }
 
   const sorted = [...logs].sort((x, y) => {
@@ -259,7 +277,11 @@ export async function listCommitmentsForAgent(ensInput: string) {
     if (x.blockNumber > y.blockNumber) return 1;
     return x.logIndex - y.logIndex;
   });
-  const commitments = await Promise.all(sorted.map((log) => enrichCommitmentPostedLog(log)));
+  // Avoid dozens of parallel eth_call — many providers rate-limit and return RPC errors.
+  const commitments: CommitmentPostedRow[] = [];
+  for (const log of sorted) {
+    commitments.push(await enrichCommitmentPostedLog(log));
+  }
   return { agent: a, nonce, commitments, resolvedEns: resolvedKey };
 }
 
