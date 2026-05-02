@@ -53,6 +53,7 @@ export function attestInputs(inputs: unknown): AttestResult {
 export type ReasonResult = {
   output: string;
   attestation?: string;
+  verified: boolean | null;
   model: string;
   providerAddress: string;
 };
@@ -62,6 +63,7 @@ export async function reason(prompt: string, systemPrompt?: string): Promise<Rea
   return {
     output: r.output,
     attestation: r.attestation,
+    verified: r.verified,
     model: r.model,
     providerAddress: r.providerAddress,
   };

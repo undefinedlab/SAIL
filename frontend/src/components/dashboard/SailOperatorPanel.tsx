@@ -11,6 +11,7 @@ import {
   getAgent,
   getAxlStatus,
   getComputeProviders,
+  getComputeLedger,
   ownsEnsName,
   receiveAxlMessages,
   reason,
@@ -18,7 +19,18 @@ import {
   registerEnsSubname,
   resolveEnsName,
   sendAxlMessage,
+  discoverAgent,
+  delegateTask,
+  getDelegations,
+  getProcessedTasks,
+  startTaskRouter,
+  stopTaskRouter,
   type CommitResponse,
+  type ComputeProvider,
+  type LedgerInfo,
+  type DiscoveredAgent,
+  type DelegationRecord,
+  type ProcessedTask,
 } from "@/lib/sail-api";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
 import { expectedChain } from "@/lib/wagmi-config";
@@ -50,6 +62,25 @@ function friendlyError(raw: string): string {
 
 type Tab = "register" | "pipeline" | "monitor" | "identity" | "mesh";
 
+function neuronToA0gi(neuron: string): string {
+  try {
+    const n = BigInt(neuron);
+    const ONE = BigInt("1000000000000000000");
+    const ZERO = BigInt(0);
+    const whole = n / ONE;
+    const frac = n % ONE;
+    if (frac === ZERO) return whole.toString();
+    const fracStr = frac.toString().padStart(18, "0").replace(/0+$/, "");
+    return `${whole}.${fracStr.slice(0, 4)}`;
+  } catch {
+    return neuron;
+  }
+}
+
+function shortAddr(addr: string) {
+  return addr.length > 16 ? `${addr.slice(0, 8)}…${addr.slice(-6)}` : addr;
+}
+
 type AgentInfo = {
   wallet: string;
   stake: string;
@@ -63,7 +94,7 @@ type AgentInfo = {
 
 type PipelineResult = {
   inputHash?: string;
-  reasoning?: { output: string; model: string; attestation?: string };
+  reasoning?: { output: string; model: string; attestation?: string; verified?: boolean | null; providerAddress?: string };
   commit?: CommitResponse;
   executeTxHash?: string;
 };
@@ -114,22 +145,15 @@ function shortPeer(peerId: string) {
   return peerId.length > 24 ? `${peerId.slice(0, 14)}…${peerId.slice(-8)}` : peerId;
 }
 
-function formatProvider(provider: Record<string, unknown>) {
-  const addr = provider.provider ?? provider.address;
-  const model = provider.model ?? provider.name;
-  return [typeof model === "string" ? model : null, typeof addr === "string" ? addr : null]
-    .filter(Boolean)
-    .join(" · ");
-}
-
 export function SailOperatorPanel() {
   const { address, isConnected, chain } = useAccount();
   const backend = useBackendStatus();
 
   const [tab, setTab] = useState<Tab>("register");
 
-  const [computeProviders, setComputeProviders] = useState<Array<Record<string, unknown>>>([]);
+  const [computeProviders, setComputeProviders] = useState<ComputeProvider[]>([]);
   const [computeError, setComputeError] = useState<string | null>(null);
+  const [computeLedger, setComputeLedger] = useState<LedgerInfo | null>(null);
 
   const [regEns, setRegEns] = useState("");
   const [regTier, setRegTier] = useState<0 | 1 | 2>(0);
@@ -194,6 +218,22 @@ export function SailOperatorPanel() {
     Array<{ from: string; message: string; topic?: string; timestamp: number }>
   >([]);
 
+  // --- Agent-to-agent communication state ---
+  const [discoverEns, setDiscoverEns] = useState("");
+  const [discoveredAgent, setDiscoveredAgent] = useState<DiscoveredAgent | null>(null);
+  const [discoverBusy, setDiscoverBusy] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+
+  const [delegateWorker, setDelegateWorker] = useState("");
+  const [delegateTask_, setDelegateTask_] = useState("");
+  const [delegateAgentEns, setDelegateAgentEns] = useState("");
+  const [delegateBusy, setDelegateBusy] = useState(false);
+  const [delegateError, setDelegateError] = useState<string | null>(null);
+  const [delegateResult, setDelegateResult] = useState<DelegationRecord | null>(null);
+
+  const [delegationList, setDelegationList] = useState<DelegationRecord[]>([]);
+  const [processedTaskList, setProcessedTaskList] = useState<ProcessedTask[]>([]);
+
   useEffect(() => {
     if (backend.status !== "online") {
       return;
@@ -213,6 +253,14 @@ export function SailOperatorPanel() {
           setComputeProviders([]);
           setComputeError(friendlyError((error as Error).message ?? String(error)));
         }
+      });
+
+    getComputeLedger()
+      .then((result) => {
+        if (!cancelled) setComputeLedger(result.ledger);
+      })
+      .catch(() => {
+        if (!cancelled) setComputeLedger(null);
       });
 
     return () => {
@@ -285,6 +333,8 @@ export function SailOperatorPanel() {
           output: reasoning.output,
           model: reasoning.model,
           attestation: reasoning.attestation,
+          verified: reasoning.verified,
+          providerAddress: reasoning.providerAddress,
         };
         setPipeResult({ ...result });
       }
@@ -452,6 +502,69 @@ export function SailOperatorPanel() {
       setMeshInboxBusy(false);
     }
   }
+
+  // --- Agent discovery ---
+  async function handleDiscover() {
+    setDiscoverBusy(true);
+    setDiscoverError(null);
+    setDiscoveredAgent(null);
+
+    try {
+      if (!discoverEns.trim()) throw new Error("ENS name required");
+      const result = await discoverAgent(discoverEns.trim());
+      setDiscoveredAgent(result);
+    } catch (error) {
+      setDiscoverError(friendlyError((error as Error).message ?? String(error)));
+    } finally {
+      setDiscoverBusy(false);
+    }
+  }
+
+  // --- Delegation ---
+  async function handleDelegate() {
+    setDelegateBusy(true);
+    setDelegateError(null);
+    setDelegateResult(null);
+
+    try {
+      if (!delegateWorker.trim()) throw new Error("Worker ENS required");
+      if (!delegateTask_.trim()) throw new Error("Task required");
+      if (!delegateAgentEns.trim()) throw new Error("Agent ENS required");
+
+      const result = await delegateTask({
+        workerEns: delegateWorker.trim(),
+        task: delegateTask_.trim(),
+        agentEns: delegateAgentEns.trim(),
+      });
+      setDelegateResult(result);
+      await refreshDelegations();
+    } catch (error) {
+      setDelegateError(friendlyError((error as Error).message ?? String(error)));
+    } finally {
+      setDelegateBusy(false);
+    }
+  }
+
+  // --- Refresh delegation + processed task lists ---
+  async function refreshDelegations() {
+    try {
+      const [d, t] = await Promise.all([getDelegations(), getProcessedTasks()]);
+      setDelegationList(d.delegations);
+      setProcessedTaskList(t.tasks);
+    } catch {
+      // silent — these are background refreshes
+    }
+  }
+
+  // Auto-refresh delegations when tab is mesh
+  useEffect(() => {
+    if (tab !== "mesh") return;
+    if (backend.status !== "online") return;
+
+    const id = setInterval(() => refreshDelegations(), 3000);
+    refreshDelegations();
+    return () => clearInterval(id);
+  }, [tab, backend.status]);
 
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
@@ -677,6 +790,30 @@ export function SailOperatorPanel() {
                           <span className="text-neutral-500">Model:</span>{" "}
                           <span className="font-mono">{pipeResult.reasoning.model}</span>
                         </p>
+                        {pipeResult.reasoning.providerAddress ? (
+                          <p>
+                            <span className="text-neutral-500">Provider:</span>{" "}
+                            <span className="font-mono">{shortAddr(pipeResult.reasoning.providerAddress)}</span>
+                          </p>
+                        ) : null}
+                        <p className="flex items-center gap-2">
+                          <span className="text-neutral-500">Verified:</span>
+                          <span
+                            className={`inline-block px-2 py-0.5 text-[10px] font-medium ${
+                              pipeResult.reasoning.verified === true
+                                ? "bg-emerald-100 text-emerald-700"
+                                : pipeResult.reasoning.verified === false
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-neutral-100 text-neutral-600"
+                            }`}
+                          >
+                            {pipeResult.reasoning.verified === true
+                              ? "verified"
+                              : pipeResult.reasoning.verified === false
+                                ? "failed"
+                                : "n/a"}
+                          </span>
+                        </p>
                         <p>
                           <span className="text-neutral-500">Decision:</span>{" "}
                           {pipeResult.reasoning.output}
@@ -723,41 +860,74 @@ export function SailOperatorPanel() {
                     0G Compute
                   </p>
                   <h3 className="mt-2 text-base font-bold text-[#05058a]">
-                    Provider visibility
+                    Ledger &amp; providers
                   </h3>
-                  <p className="mt-2 text-xs leading-relaxed text-[#05058a]/68">
-                    Use this panel to confirm whether the ZK tier has live compute providers before you flip on sealed inference.
-                  </p>
                 </div>
+
+                {/* Ledger balance */}
+                <div className="border border-neutral-200 bg-white p-3 text-[11px]">
+                  <p className="text-neutral-500">Compute ledger</p>
+                  {computeLedger ? (
+                    <div className="mt-1 space-y-0.5">
+                      <p>
+                        <span className="text-neutral-500">Total:</span>{" "}
+                        <span className="font-medium text-[#05058a]">
+                          {neuronToA0gi(computeLedger.totalBalance)} 0G
+                        </span>
+                      </p>
+                      <p>
+                        <span className="text-neutral-500">Available:</span>{" "}
+                        <span className="font-medium text-[#05058a]">
+                          {neuronToA0gi(computeLedger.availableBalance)} 0G
+                        </span>
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-amber-700">No ledger — run smoke test to create one</p>
+                  )}
+                </div>
+
                 {computeError ? (
-                  <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  <p className="border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
                     {computeError}
                   </p>
                 ) : null}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-neutral-500">Available providers</span>
-                    <span className="font-medium text-[#05058a]">{computeProviders.length}</span>
-                  </div>
-                  {computeProviders.length ? (
-                    <div className="space-y-2">
-                      {computeProviders.slice(0, 4).map((provider, index) => (
-                        <div key={`${formatProvider(provider)}-${index}`} className="border border-neutral-200 bg-white p-3 text-[11px]">
-                          <p className="font-medium text-[#05058a]">
-                            {formatProvider(provider) || `Provider ${index + 1}`}
-                          </p>
-                          <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[10px] text-neutral-500">
-                            {JSON.stringify(provider, null, 2)}
-                          </pre>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-neutral-500">
-                      No compute providers returned from the backend yet.
-                    </p>
-                  )}
+
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-neutral-500">Available providers</span>
+                  <span className="font-medium text-[#05058a]">{computeProviders.length}</span>
                 </div>
+
+                {computeProviders.length ? (
+                  <div className="space-y-2">
+                    {computeProviders.slice(0, 6).map((p, idx) => (
+                      <div key={`${p.provider}-${idx}`} className="border border-neutral-200 bg-white p-3 text-[11px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="font-medium text-[#05058a]">{p.model}</p>
+                          {p.teeSignerAcknowledged ? (
+                            <span className="bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700">
+                              TEE ✓
+                            </span>
+                          ) : (
+                            <span className="bg-neutral-100 px-1.5 py-0.5 text-[9px] text-neutral-500">
+                              unack
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 font-mono text-neutral-500">{shortAddr(p.provider)}</p>
+                        <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-neutral-500">
+                          <span>{p.verifiability}</span>
+                          <span>in: {p.inputPrice}</span>
+                          <span>out: {p.outputPrice}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-neutral-500">
+                    No compute providers returned from the backend yet.
+                  </p>
+                )}
               </aside>
             </div>
           </div>
@@ -998,154 +1168,248 @@ export function SailOperatorPanel() {
         )}
 
         {tab === "mesh" && (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="grid gap-4 xl:grid-cols-3">
+            {/* --- LEFT: Topology + Discovery --- */}
             <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
+              {/* Topology */}
               <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">
-                  AXL topology
-                </p>
-                <h3 className="mt-2 text-base font-bold text-[#05058a]">
-                  Mesh health and connected peers
-                </h3>
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">AXL topology</p>
+                <h3 className="mt-2 text-base font-bold text-[#05058a]">Mesh health</h3>
               </div>
               <button
                 onClick={handleRefreshMesh}
                 disabled={meshStatusBusy || backend.status !== "online"}
-                className="rounded border border-[#05058a] px-4 py-2 text-sm text-[#05058a] disabled:opacity-40"
+                className="rounded border border-[#05058a] px-3 py-1.5 text-xs text-[#05058a] disabled:opacity-40"
               >
-                {meshStatusBusy ? "Refreshing…" : "Refresh topology"}
+                {meshStatusBusy ? "Refreshing…" : "Refresh"}
               </button>
               {meshStatusError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {meshStatusError}
-                </p>
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{meshStatusError}</p>
               ) : null}
               {meshTopology ? (
                 <div className="space-y-3 text-xs">
                   <div className="rounded border border-neutral-200 bg-white p-3">
                     <p className="text-neutral-500">This node</p>
-                    <p className="mt-1 break-all font-mono text-[#05058a]">
-                      {meshTopology.peerId ?? "unknown peer id"}
-                    </p>
-                    {meshTopology.address ? (
-                      <p className="mt-2 break-all text-neutral-500">{meshTopology.address}</p>
-                    ) : null}
+                    <p className="mt-1 break-all font-mono text-[#05058a]">{meshTopology.peerId ?? "unknown"}</p>
+                    <p className="mt-1 text-[10px] text-neutral-400">{shortPeer(meshTopology.peerId ?? "")}</p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-neutral-500">Connected peers</p>
-                    {meshTopology.peers?.length ? (
-                      meshTopology.peers.map((peer) => (
-                        <button
-                          key={peer.peerId}
-                          type="button"
-                          onClick={() => setMeshSendTo(peer.peerId)}
-                          className="block w-full border border-neutral-200 bg-white p-3 text-left hover:bg-neutral-50"
-                        >
-                          <p className="font-mono text-[#05058a]">{shortPeer(peer.peerId)}</p>
-                          <p className="mt-1 break-all text-[11px] text-neutral-500">{peer.address}</p>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="rounded border border-neutral-200 bg-white px-3 py-2 text-neutral-500">
-                        No peers reported by the local bridge.
-                      </p>
-                    )}
+                    <p className="text-neutral-500">Connected peers ({meshTopology.peers?.length ?? 0})</p>
+                    {meshTopology.peers?.map((peer) => (
+                      <button key={peer.peerId} onClick={() => setMeshSendTo(peer.peerId)} className="block w-full border border-neutral-200 bg-white p-2 text-left hover:bg-neutral-50">
+                        <p className="font-mono text-[11px] text-[#05058a]">{shortPeer(peer.peerId)}</p>
+                      </button>
+                    ))}
                   </div>
                 </div>
               ) : null}
+
+              {/* Agent Discovery */}
+              <div className="border-t border-neutral-200 pt-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Agent discovery</p>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs"
+                    placeholder="agent.sail.eth"
+                    value={discoverEns}
+                    onChange={(e) => setDiscoverEns(e.target.value)}
+                  />
+                  <button
+                    onClick={handleDiscover}
+                    disabled={discoverBusy || backend.status !== "online"}
+                    className="rounded border border-[#05058a] px-3 py-1.5 text-xs text-[#05058a] disabled:opacity-40"
+                  >
+                    {discoverBusy ? "…" : "Lookup"}
+                  </button>
+                </div>
+                {discoverError ? (
+                  <p className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-700">{discoverError}</p>
+                ) : null}
+                {discoveredAgent ? (
+                  <div className="mt-2 space-y-2 rounded border border-emerald-200 bg-emerald-50 p-3 text-[11px]">
+                    <p className="font-medium text-emerald-800">✓ {discoveredAgent.ensName}</p>
+                    {discoveredAgent.reachable ? (
+                      <span className="inline-block bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Reachable</span>
+                    ) : (
+                      <span className="inline-block bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">No axl_peer_id</span>
+                    )}
+                    {discoveredAgent.agent && (
+                      <div className="space-y-1 text-neutral-600">
+                        <p>Tier: {["optimistic", "zk", "tee"][discoveredAgent.agent.tier]}</p>
+                        <p>Stake: {(Number(discoveredAgent.agent.stake) / 1e18).toFixed(4)} ETH</p>
+                        <p className="break-all">Wallet: {shortAddr(discoveredAgent.agent.wallet)}</p>
+                      </div>
+                    )}
+                    {discoveredAgent.records.axl_peer_id && (
+                      <p className="break-all text-[10px] text-neutral-500">Peer: {shortPeer(discoveredAgent.records.axl_peer_id)}</p>
+                    )}
+                    {discoveredAgent.reachable && (
+                      <button
+                        onClick={() => { setDelegateWorker(discoveredAgent.ensName); setDelegateAgentEns(discoveredAgent.ensName); }}
+                        className="mt-1 inline-block rounded bg-[#05058a] px-2 py-1 text-[10px] text-white"
+                      >
+                        Queue for delegation →
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
 
+            {/* --- MIDDLE: Delegation + Low-level messaging --- */}
             <div className="space-y-4 border border-neutral-200 bg-white p-4">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">
-                  Mesh message test
-                </p>
-                <h3 className="mt-2 text-base font-bold text-[#05058a]">
-                  Send and receive AXL traffic
-                </h3>
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Delegation</p>
+                <h3 className="mt-2 text-base font-bold text-[#05058a]">Delegate task to worker</h3>
+                <p className="mt-1 text-xs text-neutral-500">The worker auto-runs the SAIL pipeline and returns a commitmentHash proving correct execution.</p>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
+
+              <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-neutral-500">Recipient peer id</label>
-                  <input
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
-                    value={meshSendTo}
-                    onChange={(event) => setMeshSendTo(event.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-neutral-500">Topic</label>
+                  <label className="mb-1 block text-xs text-neutral-500">Worker ENS</label>
                   <input
                     className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                    value={meshTopic}
-                    onChange={(event) => setMeshTopic(event.target.value)}
+                    placeholder="worker.sail.eth"
+                    value={delegateWorker}
+                    onChange={(e) => setDelegateWorker(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-neutral-500">Task prompt</label>
+                  <textarea
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
+                    rows={4}
+                    placeholder="Analyze this treasury rebalancing scenario and recommend an allocation..."
+                    value={delegateTask_}
+                    onChange={(e) => setDelegateTask_(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-neutral-500">Commit as agent ENS</label>
+                  <input
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                    placeholder="your-agent.sail.eth"
+                    value={delegateAgentEns}
+                    onChange={(e) => setDelegateAgentEns(e.target.value)}
                   />
                 </div>
               </div>
+
+              <button
+                onClick={handleDelegate}
+                disabled={delegateBusy || backend.status !== "online"}
+                className="rounded bg-[#05058a] px-4 py-2 text-sm text-white disabled:opacity-40"
+              >
+                {delegateBusy ? "Delegating…" : "Delegate task"}
+              </button>
+              {delegateError ? (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{delegateError}</p>
+              ) : null}
+              {delegateResult ? (
+                <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  <p className="font-medium">✓ Task sent</p>
+                  <p className="font-mono text-[10px]">Task ID: {delegateResult.id}</p>
+                  <p className="text-[10px]">Status: {delegateResult.status}</p>
+                </div>
+              ) : null}
+
+              {/* Raw messaging (kept for advanced use) */}
+              <div className="border-t border-neutral-200 pt-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Raw AXL messaging</p>
+                <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">To peer</label>
+                    <input className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs" value={meshSendTo} onChange={(e) => setMeshSendTo(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-neutral-500">Topic</label>
+                    <input className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs" value={meshTopic} onChange={(e) => setMeshTopic(e.target.value)} />
+                  </div>
+                </div>
+                <textarea className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs" rows={3} value={meshMessage} onChange={(e) => setMeshMessage(e.target.value)} />
+                <div className="mt-2 flex gap-2">
+                  <button onClick={handleSendMeshMessage} disabled={meshSendBusy || backend.status !== "online"} className="rounded border border-[#05058a] px-3 py-1.5 text-xs text-[#05058a] disabled:opacity-40">
+                    {meshSendBusy ? "…" : "Send"}
+                  </button>
+                  <button onClick={handlePollInbox} disabled={meshInboxBusy || backend.status !== "online"} className="rounded border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-40">
+                    {meshInboxBusy ? "…" : "Poll"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* --- RIGHT: Delegations + Processed tasks --- */}
+            <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
               <div>
-                <label className="mb-1 block text-xs text-neutral-500">Message payload</label>
-                <textarea
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
-                  rows={7}
-                  value={meshMessage}
-                  onChange={(event) => setMeshMessage(event.target.value)}
-                />
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Tracking</p>
+                <h3 className="mt-2 text-base font-bold text-[#05058a]">Your delegations</h3>
+                <p className="mt-1 text-xs text-neutral-500">Auto-updates every 3s when this tab is open.</p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={handleSendMeshMessage}
-                  disabled={meshSendBusy || backend.status !== "online"}
-                  className="rounded bg-[#05058a] px-4 py-2 text-sm text-white disabled:opacity-40"
-                >
-                  {meshSendBusy ? "Sending…" : "Send message"}
-                </button>
-                <button
-                  onClick={handlePollInbox}
-                  disabled={meshInboxBusy || backend.status !== "online"}
-                  className="rounded border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50 disabled:opacity-40"
-                >
-                  {meshInboxBusy ? "Polling…" : "Poll inbox"}
-                </button>
-              </div>
-              {meshSendError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {meshSendError}
-                </p>
-              ) : null}
-              {meshSendResult ? (
-                <p className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                  {meshSendResult}
-                </p>
-              ) : null}
-              {meshInboxError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {meshInboxError}
-                </p>
-              ) : null}
-              <div className="space-y-2">
-                <p className="text-xs text-neutral-500">Inbox</p>
-                {meshInbox.length ? (
-                  meshInbox.map((message, index) => (
-                    <article key={`${message.from}-${message.timestamp}-${index}`} className="border border-neutral-200 bg-[#f5f5f0] p-3 text-xs">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="font-mono text-[#05058a]">{shortPeer(message.from)}</p>
-                        <p className="text-neutral-500">
-                          {new Date(message.timestamp).toLocaleString()}
-                        </p>
+
+              {delegationList.length ? (
+                <div className="space-y-2">
+                  {delegationList.slice(0, 5).map((d) => (
+                    <div key={d.id} className="border border-neutral-200 bg-white p-3 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <p className="font-mono text-[#05058a]">{d.id.slice(0, 12)}…</p>
+                        <span className={`px-1.5 py-0.5 text-[10px] font-medium ${
+                          d.status === "completed" ? "bg-emerald-100 text-emerald-700" : d.status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                        }`}>{d.status}</span>
                       </div>
-                      {message.topic ? (
-                        <p className="mt-1 text-neutral-500">Topic: {message.topic}</p>
-                      ) : null}
-                      <pre className="mt-2 overflow-auto whitespace-pre-wrap text-[11px] text-neutral-700">
-                        {message.message}
-                      </pre>
-                    </article>
-                  ))
+                      <p className="mt-1 text-neutral-600">To: {d.workerEns}</p>
+                      <p className="text-neutral-500 line-clamp-2">{d.task}</p>
+                      {d.result && (
+                        <div className="mt-2 border-t border-neutral-200 pt-2 text-[10px]">
+                          <p>Output: {d.result.output.slice(0, 60)}…</p>
+                          {d.result.verified !== undefined && (
+                            <span className={`mt-1 inline-block px-1.5 py-0.5 ${d.result.verified ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                              {d.result.verified ? "Verified" : "Failed verify"}
+                            </span>
+                          )}
+                          <p className="mt-1 text-neutral-400">Commitment: {shortAddr(d.result.commitmentHash)}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-neutral-500">No delegations yet. Delegate a task to a worker agent and results will appear here.</p>
+              )}
+
+              {/* Processed tasks (worker side) */}
+              <div className="border-t border-neutral-200 pt-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Processed tasks</p>
+                <p className="mt-1 text-xs text-neutral-500">Tasks this node received and processed for others.</p>
+                {processedTaskList.length ? (
+                  <div className="mt-2 space-y-2">
+                    {processedTaskList.slice(0, 5).map((t) => (
+                      <div key={t.taskId} className="border border-neutral-200 bg-white p-3 text-[11px]">
+                        <div className="flex items-center justify-between">
+                          <p className="font-mono text-[#05058a]">{t.taskId.slice(0, 12)}…</p>
+                          <span className={`px-1.5 py-0.5 text-[10px] ${
+                            t.status === "completed" ? "bg-emerald-100 text-emerald-700" : t.status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
+                          }`}>{t.status}</span>
+                        </div>
+                        <p className="text-neutral-600">From: {shortPeer(t.from)}</p>
+                        <p className="text-neutral-500 line-clamp-1">{t.task}</p>
+                        {t.result && (
+                          <div className="mt-1 text-[10px] text-neutral-400">Commitment: {shortAddr(t.result.commitmentHash)}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 ) : (
-                  <p className="rounded border border-neutral-200 bg-[#f5f5f0] px-3 py-2 text-xs text-neutral-500">
-                    No AXL messages fetched yet.
-                  </p>
+                  <p className="mt-2 text-xs text-neutral-500">No tasks processed yet. Ensure the Task Router is running.</p>
                 )}
+              </div>
+
+              {/* Task router control */}
+              <div className="border-t border-neutral-200 pt-4">
+                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Task router</p>
+                <div className="mt-2 flex gap-2">
+                  <button onClick={async () => { await startTaskRouter(); await refreshDelegations(); }} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">Start</button>
+                  <button onClick={async () => { await stopTaskRouter(); await refreshDelegations(); }} className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50">Stop</button>
+                </div>
               </div>
             </div>
           </div>

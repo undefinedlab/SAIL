@@ -64,7 +64,25 @@ async function testStorage() {
 }
 
 async function testCompute() {
-  log("0G Compute");
+  log("0G Compute — Full Flow");
+
+  // --- Ledger ---
+  try {
+    info("checking ledger…");
+    const ledger = await compute.getLedger();
+    ok(`ledger exists — totalBalance: ${ledger.totalBalance}, availableBalance: ${ledger.availableBalance}`);
+  } catch {
+    info("no ledger found — creating with 3 0G (SDK minimum)…");
+    try {
+      const result = await compute.setupLedger(3);
+      ok(`ledger ${result.action} with ${result.amount} 0G`);
+    } catch (e) {
+      fail("ledger setup failed", e);
+      return;
+    }
+  }
+
+  // --- Providers ---
   try {
     info("listing inference providers…");
     const providers = await compute.listInferenceProviders();
@@ -73,27 +91,29 @@ async function testCompute() {
       info("no providers online — skipping inference");
       return;
     }
-    for (const p of providers.slice(0, 3)) {
-      info(`  ${(p as { provider?: string; address?: string }).provider ?? (p as { address?: string }).address ?? JSON.stringify(p).slice(0, 80)}`);
+    for (const p of providers.slice(0, 5)) {
+      info(`  ${p.provider} — ${p.model} (${p.verifiability})`);
     }
 
+    // Pick provider: prefer env var, else auto-pick
     let providerAddr = env.zeroG.computeProvider;
     if (!providerAddr || !ethers.isAddress(providerAddr)) {
-      if (providers.length > 0) {
-        const first = providers[0] as { provider?: string; address?: string };
-        providerAddr = first.provider ?? first.address ?? "";
-        info(`ZERO_G_COMPUTE_PROVIDER not a valid address — auto-picked: ${providerAddr}`);
-      } else {
+      const picked = await compute.pickProvider();
+      if (!picked) {
         info("no valid compute provider available — skipping inference");
         return;
       }
+      providerAddr = picked.provider;
+      info(`auto-picked provider: ${providerAddr} (${picked.model})`);
     }
 
+    // --- Inference ---
     info(`running sealed inference via ${providerAddr}…`);
     const r = await compute.runSealedInference("Reply with the single word: OK", undefined, providerAddr);
-    ok(`output: ${r.output.slice(0, 80)}`);
+    ok(`output: ${r.output.slice(0, 120)}`);
     ok(`model: ${r.model}`);
-    if (r.attestation) ok(`attestation: ${r.attestation.slice(0, 60)}…`);
+    ok(`verified: ${r.verified}`);
+    if (r.attestation) ok(`attestation: ${r.attestation.slice(0, 80)}…`);
     else info("no attestation returned");
   } catch (e) {
     fail("compute failed", e);
