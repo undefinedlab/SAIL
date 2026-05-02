@@ -11,7 +11,7 @@ export default function OperatorDashboardPage() {
           <ConsoleFrame
             eyebrow="Operator Path"
             title="Commit path and operator tooling"
-            description="Use Agent for registration and on-chain status, Pipeline for attest → commit → execute, and Network for ENS plus AXL mesh."
+            description="Register, run Pipeline, monitor on-chain state, then use Identity and Mesh for ENS and AXL."
           >
             <SailOperatorPanel />
           </ConsoleFrame>

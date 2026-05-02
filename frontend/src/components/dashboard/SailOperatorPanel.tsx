@@ -59,10 +59,8 @@ function friendlyError(raw: string): string {
   return raw.split("\n")[0].replace(/^Error:\s*/, "");
 }
 
-/** Three operator workspaces; Register/Monitor and Identity/Mesh use compact sub-tabs. */
-type PrimaryWorkspace = "agent" | "pipeline" | "network";
-type AgentSection = "register" | "monitor";
-type NetworkSection = "identity" | "mesh";
+/** Top-level workspaces in flow order: register → pipeline → monitor → identity → mesh. */
+type PrimaryWorkspace = "register" | "pipeline" | "monitor" | "identity" | "mesh";
 
 function neuronToA0gi(neuron: string): string {
   try {
@@ -151,9 +149,7 @@ export function SailOperatorPanel() {
   const { isConnected, chain } = useAccount();
   const backend = useBackendStatus();
 
-  const [primary, setPrimary] = useState<PrimaryWorkspace>("pipeline");
-  const [agentSection, setAgentSection] = useState<AgentSection>("register");
-  const [networkSection, setNetworkSection] = useState<NetworkSection>("identity");
+  const [primary, setPrimary] = useState<PrimaryWorkspace>("register");
 
   const [computeProviders, setComputeProviders] = useState<ComputeProvider[]>([]);
   const [computeError, setComputeError] = useState<string | null>(null);
@@ -579,13 +575,13 @@ export function SailOperatorPanel() {
 
   // Auto-refresh delegations when Mesh is open
   useEffect(() => {
-    if (primary !== "network" || networkSection !== "mesh") return;
+    if (primary !== "mesh") return;
     if (backend.status !== "online") return;
 
     const id = setInterval(() => refreshDelegations(), 3000);
     refreshDelegations();
     return () => clearInterval(id);
-  }, [primary, networkSection, backend.status]);
+  }, [primary, backend.status]);
 
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
@@ -596,27 +592,26 @@ export function SailOperatorPanel() {
         : "border border-[#05058a]/20 bg-white text-[#05058a]/80 hover:border-[#05058a]/45 hover:text-[#05058a]"
     }`;
 
-  const subCls = (active: boolean) =>
-    `px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-      active
-        ? "border-[#05058a] text-[#05058a]"
-        : "border-transparent text-neutral-500 hover:text-neutral-800"
-    }`;
-
   return (
     <div className="space-y-0 text-sm">
       <div className="space-y-3 border-b border-neutral-200 pb-4">
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <IntegrationStatusCards backend={backend} variant="compact" />
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <button type="button" className={primaryCls("agent")} onClick={() => setPrimary("agent")}>
-              Agent
+            <button type="button" className={primaryCls("register")} onClick={() => setPrimary("register")}>
+              Register
             </button>
             <button type="button" className={primaryCls("pipeline")} onClick={() => setPrimary("pipeline")}>
               Pipeline
             </button>
-            <button type="button" className={primaryCls("network")} onClick={() => setPrimary("network")}>
-              Network
+            <button type="button" className={primaryCls("monitor")} onClick={() => setPrimary("monitor")}>
+              Monitor
+            </button>
+            <button type="button" className={primaryCls("identity")} onClick={() => setPrimary("identity")}>
+              Identity
+            </button>
+            <button type="button" className={primaryCls("mesh")} onClick={() => setPrimary("mesh")}>
+              Mesh
             </button>
           </div>
         </div>
@@ -627,29 +622,8 @@ export function SailOperatorPanel() {
         ) : null}
       </div>
 
-      {primary === "agent" ? (
-        <div className="flex gap-1 border-b border-neutral-200">
-          <button type="button" className={subCls(agentSection === "register")} onClick={() => setAgentSection("register")}>
-            Register
-          </button>
-          <button type="button" className={subCls(agentSection === "monitor")} onClick={() => setAgentSection("monitor")}>
-            Monitor
-          </button>
-        </div>
-      ) : null}
-      {primary === "network" ? (
-        <div className="flex gap-1 border-b border-neutral-200">
-          <button type="button" className={subCls(networkSection === "identity")} onClick={() => setNetworkSection("identity")}>
-            Identity
-          </button>
-          <button type="button" className={subCls(networkSection === "mesh")} onClick={() => setNetworkSection("mesh")}>
-            Mesh
-          </button>
-        </div>
-      ) : null}
-
       <div className="pt-5">
-        {primary === "agent" && agentSection === "register" && (
+        {primary === "register" && (
           <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Register a new AI agent with the SAIL contract. The backend operator wallet signs the transaction and locks the stake.
@@ -963,7 +937,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {primary === "agent" && agentSection === "monitor" && (
+        {primary === "monitor" && (
           <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Look up any registered SAIL agent by ENS name and inspect the contract-level state that drives auditability.
@@ -1058,7 +1032,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {primary === "network" && networkSection === "identity" && (
+        {primary === "identity" && (
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
               <div>
@@ -1215,7 +1189,7 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {primary === "network" && networkSection === "mesh" && (
+        {primary === "mesh" && (
           <div className="grid gap-4 xl:grid-cols-3">
             {/* --- LEFT: Topology + Discovery --- */}
             <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">

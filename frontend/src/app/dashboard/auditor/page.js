@@ -11,13 +11,7 @@ export default function AuditorDashboardPage() {
           <ConsoleFrame
             eyebrow="Auditor Path"
             title="Inspect the reveal and enforcement path"
-            description="Use this console to look up anchored commitments, inspect sealed blobs, and only then decide whether the slash path is justified."
-            aside={
-              <div className="space-y-2 text-xs text-[#05058a]/68">
-                <p>Recommended order: lookup → audit → slash.</p>
-                <p>Slash is intentionally separated from retrieval so the console does not push unsafe conclusions.</p>
-              </div>
-            }
+            description="Look up anchored commitments, inspect sealed blobs, and only then decide whether the slash path is justified."
           >
             <SailAuditorPanel />
           </ConsoleFrame>

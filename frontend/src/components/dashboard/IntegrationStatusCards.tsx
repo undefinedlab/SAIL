@@ -40,19 +40,14 @@ const STACK_ITEMS = [
   },
 ] as const;
 
+function itemStatus(backend: BackendInfo, itemKey: (typeof STACK_ITEMS)[number]["key"]) {
+  if (backend.status !== "online") return backend.status;
+  if (itemKey === "axl") return backend.axlOnline ? "online" : "offline";
+  return "online" as const;
+}
+
 export function IntegrationStatusCards({ backend, variant = "default" }: IntegrationStatusCardsProps) {
-  const items = STACK_ITEMS.map((item) => {
-    const isAxl = item.key === "axl";
-    const status =
-      backend.status === "online"
-        ? isAxl
-          ? backend.axlOnline
-            ? "online"
-            : "offline"
-          : "online"
-        : backend.status;
-    return { item, status };
-  });
+  const items = STACK_ITEMS.map((item) => ({ item, status: itemStatus(backend, item.key) }));
 
   if (variant === "compact") {
     return (

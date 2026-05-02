@@ -16,7 +16,8 @@
  * Tools:
  *   sail_register        SAIL contract register + optional ENS subname/records (same as POST /api/register)
  *   sail_attest_inputs   Stage 01 — hash inputs before reasoning
- *   sail_think_with_sail One-shot attest → commit (+ optional execute); embeds inputs in blob as auditContext
+ *   sail_think_with_sail      One-shot attest → commit (+ optional execute); optimistic reasoning
+ *   sail_reason_with_sailplus Same flow after 0G sealed inference; attestation in blob (ZK-style evidence)
  *   sail_commit          Stage 03 — Lit encrypt → 0G upload → SAIL anchor
  *   sail_execute         Stage 04 — contract-gated execution
  *   sail_audit_commitment Fetch 0G blob + decrypt (AES fallback) or describe Lit blob
@@ -34,6 +35,7 @@ import {
   runSailAttestInputs,
   runSailCommit,
   runSailThinkWithSail,
+  runSailReasonWithSailPlus,
   runSailExecute,
   runSailAuditCommitment,
   runSailDeliver,
@@ -163,7 +165,7 @@ export function createSailMcpServer(): McpServer {
 
   mcp.tool(
     "sail_think_with_sail",
-    "Single tool for a verifiable episode: hashes inputs, stores the same payload as auditContext inside the encrypted commitment blob (so auditors see prompt/context + decision + proposedAction), anchors on-chain, optionally clears execute. Use when the user says 'think with SAIL' or wants one precise gated action (e.g. send this tx after commit). Prefer runExecute:false until the calldata is reviewed.",
+    "Verifiable episode in order: (1) attest inputs → hash, (2) on-chain commit (sealed blob + auditContext), (3) optional sail_execute to clear the gate, (4) optional nativeTransfer — Sepolia ETH from OPERATOR_PRIVATE_KEY only after execute succeeds. Side-effects (e.g. transfers) belong in step 4 with nativeTransfer, not before commit. Prefer runExecute:false until intent is reviewed; use nativeTransfer only with runExecute:true.",
     {
       agentEns: z
         .string()
@@ -183,7 +185,16 @@ export function createSailMcpServer(): McpServer {
         .optional()
         .default(false)
         .describe(
-          "If true, calls sail_execute immediately after commit. If false, run sail_execute manually after review.",
+          "If true, calls sail_execute immediately after commit. If false, run sail_execute manually after review. Required when using nativeTransfer.",
+        ),
+      nativeTransfer: z
+        .object({
+          to: z.string().describe("Recipient 0x address on Sepolia"),
+          amountEth: z.string().describe("Amount as decimal ETH string, e.g. 0.0001"),
+        })
+        .optional()
+        .describe(
+          "If set, broadcasts native ETH after on-chain execute mines (commit → execute → transfer). Signs with server OPERATOR_PRIVATE_KEY.",
         ),
     },
     async (a) =>
@@ -194,6 +205,53 @@ export function createSailMcpServer(): McpServer {
         proposedAction: a.proposedAction,
         attestation: a.attestation,
         runExecute: a.runExecute,
+        nativeTransfer: a.nativeTransfer,
+      }),
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // sail_reason_with_sailplus — 0G sealed inference + attestation → commit path
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  mcp.tool(
+    "sail_reason_with_sailplus",
+    "Like sail_think_with_sail but runs reasoning through 0G Compute sealed inference first. The returned attestation is embedded in the Lit/0G commitment blob alongside decision and proposedAction. Requires funded 0G ledger (ZERO_G_PRIVATE_KEY, setup-compute). Prefer sail_think_with_sail when you do not need provider attestation.",
+    {
+      agentEns: z.string().describe("Registered agent ENS"),
+      prompt: z.string().describe("User/task prompt sent to sealed inference"),
+      systemPrompt: z.string().optional().describe("Optional system prompt for the inference provider"),
+      inputs: z
+        .unknown()
+        .optional()
+        .describe(
+          "Extra JSON audit context merged into blob (sealedInference output is added automatically).",
+        ),
+      decision: z
+        .string()
+        .optional()
+        .describe("Human-readable decision; defaults to the model output from sealed inference"),
+      proposedAction: z
+        .string()
+        .describe("Concrete next step (must match what you will do after execute if using nativeTransfer)"),
+      runExecute: z.boolean().optional().default(false),
+      nativeTransfer: z
+        .object({
+          to: z.string(),
+          amountEth: z.string(),
+        })
+        .optional()
+        .describe("Same as sail_think_with_sail — requires runExecute: true"),
+    },
+    async (a) =>
+      runSailReasonWithSailPlus({
+        agentEns: a.agentEns,
+        prompt: a.prompt,
+        systemPrompt: a.systemPrompt,
+        inputs: a.inputs,
+        decision: a.decision,
+        proposedAction: a.proposedAction,
+        runExecute: a.runExecute,
+        nativeTransfer: a.nativeTransfer,
       }),
   );
 
@@ -203,7 +261,7 @@ export function createSailMcpServer(): McpServer {
 
   mcp.tool(
     "sail_execute",
-    "Clear the SAIL execution gate. The contract verifies a valid prior commitment exists for this agent — if not, execution reverts. Only call this after sail_commit succeeds.",
+    "Clear the SAIL execution gate after a commitment is on-chain. Fulfilling side-effects (e.g. native ETH) should happen after this tx succeeds — use sail_think_with_sail or sail_reason_with_sailplus with nativeTransfer to enforce that order automatically.",
     {
       agentEns: z.string().describe("Your ENS name"),
       commitmentHash: z

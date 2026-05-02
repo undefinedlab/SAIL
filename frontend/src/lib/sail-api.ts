@@ -66,6 +66,35 @@ export async function getAgent(ens: string) {
   }>(`/api/agents/${encodeURIComponent(ens)}`);
 }
 
+/** CommitmentPosted log rows for an agent + current on-chain execute flag (for auditor lookup). */
+export async function getAgentCommitments(ens: string) {
+  return jsonRequest<{
+    agent: {
+      wallet: string;
+      stake: string;
+      tier: number;
+      active: boolean;
+      auditors: string[];
+      commitmentCount: string;
+      slashCount: string;
+    };
+    nonce: string;
+    commitments: Array<{
+      txHash: string;
+      blockNumber: string;
+      logIndex: string;
+      commitmentHash: string;
+      cid: string;
+      nonce: string;
+      inputHash: string;
+      timestamp: string;
+      executed: boolean;
+    }>;
+    /** Exact `string` key used on-chain (after normalization / fallback). */
+    resolvedEns: string;
+  }>(`/api/agents/${encodeURIComponent(ens)}/commitments`);
+}
+
 export async function getCommitment(hash: string) {
   return jsonRequest<{
     commitment: {

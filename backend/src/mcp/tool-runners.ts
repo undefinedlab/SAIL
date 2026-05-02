@@ -3,12 +3,12 @@
  */
 
 import { ethers } from "ethers";
-import type { Address } from "viem";
+import { isAddress, parseEther, type Address, type Hex } from "viem";
 import * as pipeline from "../api/pipeline.js";
 import * as axl from "../../gensyn/client.js";
 import * as ens from "../../ens/registry.js";
 import * as sailContract from "../contract/sail.js";
-import { SAIL_ADDRESS } from "../contract/sail.js";
+import { SAIL_ADDRESS, operatorClient, publicClient } from "../contract/sail.js";
 import { registerEnsSubnameForAgentIfApplicable } from "../api/register-agent-shared.js";
 import { env } from "../config/env.js";
 
@@ -133,8 +133,54 @@ export async function runSailThinkWithSail(args: {
   proposedAction: string;
   attestation?: string;
   runExecute?: boolean;
+  /**
+   * When set with runExecute, sends native Sepolia ETH from OPERATOR_PRIVATE_KEY only after
+   * on-chain `execute` succeeds — order: attest → commit → execute → transfer (fulfillment).
+   */
+  nativeTransfer?: { to: string; amountEth: string };
 }): Promise<ToolTextResult> {
-  const { agentEns, inputs, decision, proposedAction, attestation, runExecute = false } = args;
+  const {
+    agentEns,
+    inputs,
+    decision,
+    proposedAction,
+    attestation,
+    runExecute = false,
+    nativeTransfer,
+  } = args;
+
+  if (nativeTransfer && !runExecute) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error:
+              "nativeTransfer requires runExecute: true. Flow is attest → commit → SAIL execute (gate) → then native transfer.",
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  if (nativeTransfer) {
+    const addr = nativeTransfer.to.trim();
+    if (!isAddress(addr)) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              error: `nativeTransfer.to is not a valid address: ${nativeTransfer.to}`,
+            }),
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   const attest = pipeline.attestInputs(inputs);
   const commitResult = await pipeline.commit({
     agentEns,
@@ -160,7 +206,25 @@ export async function runSailThinkWithSail(args: {
     const execResult = await pipeline.execute(agentEns, commitResult.commitmentHash);
     out["executeTxHash"] = execResult.txHash;
     out["executeEtherscan"] = `https://sepolia.etherscan.io/tx/${execResult.txHash}`;
-    out["note"] = "Attest + commit + execute complete for this episode.";
+    out["note"] = nativeTransfer
+      ? "SAIL execute cleared; broadcasting native transfer as fulfillment…"
+      : "Attest + commit + execute complete for this episode.";
+
+    if (nativeTransfer) {
+      const to = nativeTransfer.to.trim() as Address;
+      const transferHash: Hex = await operatorClient.sendTransaction({
+        to,
+        value: parseEther(String(nativeTransfer.amountEth)),
+      });
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: transferHash });
+      if (receipt.status !== "success") {
+        throw new Error(`Native transfer reverted after SAIL execute: ${transferHash}`);
+      }
+      out["nativeTransferTxHash"] = transferHash;
+      out["nativeTransferEtherscan"] = `https://sepolia.etherscan.io/tx/${transferHash}`;
+      out["note"] =
+        "Attest + commit + SAIL execute, then native Sepolia transfer (commitment bound intent before funds moved).";
+    }
   }
   return {
     content: [
@@ -170,6 +234,106 @@ export async function runSailThinkWithSail(args: {
       },
     ],
   };
+}
+
+function mergeReasonAuditContext(
+  inputs: unknown,
+  prompt: string,
+  reason: pipeline.ReasonResult,
+): Record<string, unknown> {
+  const base =
+    inputs !== undefined && inputs !== null && typeof inputs === "object" && !Array.isArray(inputs)
+      ? { ...(inputs as Record<string, unknown>) }
+      : inputs === undefined || inputs === null
+        ? {}
+        : { context: inputs };
+  return {
+    ...base,
+    reasonPrompt: prompt,
+    sealedInference: {
+      output: reason.output,
+      model: reason.model,
+      providerAddress: reason.providerAddress,
+      verified: reason.verified,
+    },
+  };
+}
+
+/**
+ * 0G Compute sealed inference → attestation embedded in commit blob, then same path as sail_think_with_sail.
+ * Use for ZK-tier-style auditability (attestation in ciphertext) vs optimistic-only sail_think_with_sail.
+ */
+export async function runSailReasonWithSailPlus(args: {
+  agentEns: string;
+  prompt: string;
+  systemPrompt?: string;
+  inputs?: unknown;
+  /** Defaults to sealed-inference output when omitted. */
+  decision?: string;
+  proposedAction: string;
+  runExecute?: boolean;
+  nativeTransfer?: { to: string; amountEth: string };
+}): Promise<ToolTextResult> {
+  let reasonResult: pipeline.ReasonResult;
+  try {
+    reasonResult = await pipeline.reason(args.prompt, args.systemPrompt);
+  } catch (e) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({
+            error: `0G Compute sealed inference failed: ${(e as Error).message ?? String(e)}`,
+            hint: "Fund ledger and pick a provider: npm run setup-compute, ZERO_G_PRIVATE_KEY, optional ZERO_G_COMPUTE_PROVIDER. Verify: npm run smoke -- compute",
+          }),
+        },
+      ],
+      isError: true,
+    };
+  }
+
+  const mergedInputs = mergeReasonAuditContext(args.inputs, args.prompt, reasonResult);
+  const decision =
+    args.decision !== undefined && String(args.decision).trim() !== ""
+      ? String(args.decision)
+      : reasonResult.output;
+
+  const inner = await runSailThinkWithSail({
+    agentEns: args.agentEns,
+    inputs: mergedInputs,
+    decision,
+    proposedAction: args.proposedAction,
+    attestation: reasonResult.attestation,
+    runExecute: args.runExecute,
+    nativeTransfer: args.nativeTransfer,
+  });
+
+  if (inner.isError) {
+    return inner;
+  }
+
+  try {
+    const body = JSON.parse(inner.content[0]!.text as string) as Record<string, unknown>;
+    const enriched = {
+      pipeline: "sail_reason_with_sailplus",
+      sealedInference: {
+        model: reasonResult.model,
+        providerAddress: reasonResult.providerAddress,
+        verified: reasonResult.verified,
+        outputPreview:
+          reasonResult.output.length > 2000
+            ? `${reasonResult.output.slice(0, 2000)}…`
+            : reasonResult.output,
+        attestationPresent: Boolean(reasonResult.attestation),
+      },
+      ...body,
+    };
+    return {
+      content: [{ type: "text", text: JSON.stringify(enriched, null, 2) }],
+    };
+  } catch {
+    return inner;
+  }
 }
 
 export async function runSailExecute(args: {
@@ -370,6 +534,8 @@ const registry: Record<string, (args: Record<string, unknown>) => Promise<ToolTe
   sail_attest_inputs: (a) => runSailAttestInputs(a as Parameters<typeof runSailAttestInputs>[0]),
   sail_commit: (a) => runSailCommit(a as Parameters<typeof runSailCommit>[0]),
   sail_think_with_sail: (a) => runSailThinkWithSail(a as Parameters<typeof runSailThinkWithSail>[0]),
+  sail_reason_with_sailplus: (a) =>
+    runSailReasonWithSailPlus(a as Parameters<typeof runSailReasonWithSailPlus>[0]),
   sail_execute: (a) => runSailExecute(a as Parameters<typeof runSailExecute>[0]),
   sail_audit_commitment: (a) => runSailAuditCommitment(a as Parameters<typeof runSailAuditCommitment>[0]),
   sail_deliver: (a) => runSailDeliver(a as Parameters<typeof runSailDeliver>[0]),

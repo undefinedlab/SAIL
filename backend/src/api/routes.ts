@@ -48,6 +48,23 @@ api.get("/health", (_req: Request, res: Response) => {
 // Reads
 // -------------------------------------------------------------------------
 
+api.get("/agents/:ens/commitments", async (req, res) => {
+  try {
+    const ens = req.params.ens.trim();
+    if (!ens) {
+      return res.status(400).json({ error: "ens required" });
+    }
+    const { agent, nonce, commitments, resolvedEns } = await contract.listCommitmentsForAgent(ens);
+    res.json(jsonSafe({ agent, nonce, commitments, resolvedEns }));
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : contractError(err);
+    if (raw.includes("not registered")) {
+      return res.status(404).json({ error: raw });
+    }
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
 api.get("/agents/:ens", async (req, res) => {
   try {
     const agent = await contract.getAgent(req.params.ens);

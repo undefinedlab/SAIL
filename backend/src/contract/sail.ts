@@ -9,12 +9,17 @@
 import {
   createPublicClient,
   createWalletClient,
+  decodeEventLog,
+  getAbiItem,
+  getAddress,
   http,
   type Address,
   type Hex,
   parseAbi,
+  zeroAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { normalize } from "viem/ens";
 import { sepolia } from "viem/chains";
 import { env } from "../config/env.js";
 
@@ -86,6 +91,176 @@ export async function getCommitment(commitmentHash: Hex) {
     functionName: "getCommitment",
     args: [commitmentHash],
   });
+}
+
+const commitmentPostedEvent = getAbiItem({
+  abi: SAIL_ABI,
+  name: "CommitmentPosted",
+});
+
+/** All CommitmentPosted logs for this ENS (includes tx hash per post). */
+export async function getCommitmentPostedLogsForEns(ens: string) {
+  return publicClient.getLogs({
+    address: SAIL_ADDRESS,
+    event: commitmentPostedEvent,
+    args: { ens },
+    fromBlock: 0n,
+    toBlock: "latest",
+  });
+}
+
+function agentWalletIsEmpty(wallet: Address) {
+  try {
+    return getAddress(wallet) === zeroAddress;
+  } catch {
+    return true;
+  }
+}
+
+/** Trim + ENSIP-15 normalize when possible; fall back to raw trim. */
+export function resolveEnsInput(ensInput: string): { raw: string; canonical: string } {
+  const raw = ensInput.trim();
+  if (!raw) throw new Error("ens required");
+  try {
+    return { raw, canonical: normalize(raw) };
+  } catch {
+    return { raw, canonical: raw };
+  }
+}
+
+async function mergeCommitmentPostedLogsForVariants(variants: string[]) {
+  const uniq = [...new Set(variants.filter(Boolean))];
+  const merged: Awaited<ReturnType<typeof getCommitmentPostedLogsForEns>> = [];
+  const seen = new Set<string>();
+  for (const v of uniq) {
+    const chunk = await getCommitmentPostedLogsForEns(v);
+    for (const log of chunk) {
+      const k = `${log.transactionHash}-${log.logIndex}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      merged.push(log);
+    }
+  }
+  return merged;
+}
+
+/** Fallback when indexed-string filters miss: scan logs and match decoded ENS (RPC / topic quirks). */
+async function scanCommitmentPostedMatchingEns(ensCandidates: Set<string>) {
+  const all = await publicClient.getLogs({
+    address: SAIL_ADDRESS,
+    event: commitmentPostedEvent,
+    fromBlock: 0n,
+    toBlock: "latest",
+  });
+  const matched: typeof all = [];
+  for (const log of all) {
+    try {
+      const decoded = decodeEventLog({
+        abi: SAIL_ABI,
+        data: log.data,
+        topics: [...log.topics] as [Hex, ...Hex[]],
+        eventName: "CommitmentPosted",
+        strict: true,
+      });
+      const e = decoded.args.ens as string;
+      if (ensCandidates.has(e)) matched.push(log);
+    } catch {
+      continue;
+    }
+  }
+  return matched;
+}
+
+export type CommitmentPostedRow = {
+  txHash: Hex;
+  blockNumber: string;
+  logIndex: string;
+  commitmentHash: Hex;
+  cid: string;
+  nonce: string;
+  inputHash: Hex;
+  timestamp: string;
+  executed: boolean;
+};
+
+/** Decode log + merge current on-chain commitment row (executed, timestamp, inputHash). */
+export async function enrichCommitmentPostedLog(log: {
+  data: Hex;
+  topics: readonly Hex[];
+  transactionHash: Hex;
+  blockNumber: bigint;
+  logIndex: number;
+}): Promise<CommitmentPostedRow> {
+  const decoded = decodeEventLog({
+    abi: SAIL_ABI,
+    data: log.data,
+    topics: [...log.topics] as [Hex, ...Hex[]],
+    eventName: "CommitmentPosted",
+    strict: true,
+  });
+  const commitmentHash = decoded.args.commitmentHash as Hex;
+  const onchain = await getCommitment(commitmentHash);
+  const row = onchain as {
+    inputHash: Hex;
+    commitmentHash: Hex;
+    cid: string;
+    nonce: bigint;
+    timestamp: bigint;
+    executed: boolean;
+  };
+  return {
+    txHash: log.transactionHash,
+    blockNumber: log.blockNumber.toString(),
+    logIndex: String(log.logIndex),
+    commitmentHash,
+    cid: decoded.args.cid,
+    nonce: decoded.args.nonce.toString(),
+    inputHash: row.inputHash,
+    timestamp: row.timestamp.toString(),
+    executed: row.executed,
+  };
+}
+
+/** Agent ENS history: every CommitmentPosted tx, with fields needed to pick an audit target. */
+export async function listCommitmentsForAgent(ensInput: string) {
+  const { raw, canonical } = resolveEnsInput(ensInput);
+
+  let resolvedKey = canonical;
+  let agent = await getAgent(canonical);
+  let a = agent as {
+    wallet: Address;
+    stake: bigint;
+    tier: number;
+    active: boolean;
+    auditors: Address[];
+    commitmentCount: bigint;
+    slashCount: bigint;
+  };
+
+  if (agentWalletIsEmpty(a.wallet) && raw !== canonical) {
+    agent = await getAgent(raw);
+    a = agent as typeof a;
+    resolvedKey = raw;
+  }
+
+  if (agentWalletIsEmpty(a.wallet)) {
+    throw new Error("Agent not registered for this ENS");
+  }
+
+  const nonce = await getNonce(resolvedKey);
+  let logs = await mergeCommitmentPostedLogsForVariants([resolvedKey, canonical, raw]);
+
+  if (logs.length === 0 && a.commitmentCount > 0n) {
+    logs = await scanCommitmentPostedMatchingEns(new Set([resolvedKey, canonical, raw]));
+  }
+
+  const sorted = [...logs].sort((x, y) => {
+    if (x.blockNumber < y.blockNumber) return -1;
+    if (x.blockNumber > y.blockNumber) return 1;
+    return x.logIndex - y.logIndex;
+  });
+  const commitments = await Promise.all(sorted.map((log) => enrichCommitmentPostedLog(log)));
+  return { agent: a, nonce, commitments, resolvedEns: resolvedKey };
 }
 
 export async function getNonce(ens: string): Promise<bigint> {
