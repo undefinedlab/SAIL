@@ -26,12 +26,12 @@ type RawTopology = {
     root: string;
     port: number;
     coords: number[];
-  }>;
+  }> | null;
   tree: Array<{
     public_key: string;
     parent: string;
     sequence: number;
-  }>;
+  }> | null;
 };
 
 type SailEnvelope = {
@@ -133,16 +133,19 @@ async function axlSendRaw(path: string, body: Uint8Array, headers: HeadersInit):
 }
 
 function normalizeTopology(raw: RawTopology): Topology {
+  const peers = raw.peers ?? [];
+  const tree = raw.tree ?? [];
+
   return {
     peerId: raw.our_public_key,
     ipv6: raw.our_ipv6,
-    peers: raw.peers.map((peer) => ({
+    peers: peers.map((peer) => ({
       peerId: peer.public_key,
       address: peer.uri,
       up: peer.up,
       inbound: peer.inbound,
     })),
-    tree: raw.tree.map((node) => ({
+    tree: tree.map((node) => ({
       peerId: node.public_key,
       parent: node.parent,
       sequence: node.sequence,

@@ -10,7 +10,7 @@
  */
 
 import { spawn, type ChildProcess, execFile as execFileCb } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { promisify } from "node:util";
 import path from "node:path";
 import { env } from "../src/config/env.js";
@@ -65,17 +65,27 @@ async function ensureRepo(): Promise<void> {
 
   if (!existsSync(REPO_DIR)) {
     await runOrThrow("git", ["clone", "--depth", "1", "https://github.com/gensyn-ai/axl.git", REPO_DIR]);
-    return;
+  }
+}
+
+function resolveGoToolchain(): string {
+  const configured = process.env["AXL_GO_TOOLCHAIN"];
+  if (configured && configured.trim() !== "") {
+    return configured.trim();
   }
 
-  await runOrThrow("git", ["fetch", "--depth", "1", "origin", "main"], REPO_DIR);
-  await runOrThrow("git", ["reset", "--hard", "origin/main"], REPO_DIR);
+  const goModPath = path.join(REPO_DIR, "go.mod");
+  const goMod = readFileSync(goModPath, "utf8");
+  const match = goMod.match(/^go\s+([0-9]+\.[0-9]+(?:\.[0-9]+)?)/m);
+  return match ? `go${match[1]}` : "go1.25.5";
 }
 
 async function ensureBuiltBinary(): Promise<void> {
   await ensureGoInstalled();
   await ensureRepo();
-  await runOrThrow("go", ["build", "-o", "node", "./cmd/node/"], REPO_DIR);
+  await runOrThrow("go", ["build", "-o", "node", "./cmd/node/"], REPO_DIR, {
+    GOTOOLCHAIN: resolveGoToolchain(),
+  });
 }
 
 async function ensureIdentityKey(): Promise<void> {
