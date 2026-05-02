@@ -79,10 +79,52 @@ export async function getCommitment(hash: string) {
   }>(`/api/commitments/${hash}`);
 }
 
-export async function getComputeProviders() {
+export async function getComputeProviders(modelFilter?: string) {
+  const qs = modelFilter ? `?model=${encodeURIComponent(modelFilter)}` : "";
   return jsonRequest<{
-    providers: Array<Record<string, unknown>>;
-  }>("/api/compute/providers");
+    providers: ComputeProvider[];
+    total: number;
+  }>(`/api/compute/providers${qs}`);
+}
+
+export type ComputeProvider = {
+  provider: string;
+  model: string;
+  url: string;
+  inputPrice: string;
+  outputPrice: string;
+  verifiability: string;
+  teeSignerAcknowledged: boolean;
+};
+
+export type LedgerInfo = {
+  totalBalance: string;
+  availableBalance: string;
+  [key: string]: unknown;
+};
+
+export async function setupComputeLedger(amount: number) {
+  return jsonRequest<{ action: "created" | "deposited"; amount: number }>(
+    "/api/compute/ledger/setup",
+    { method: "POST", body: JSON.stringify({ amount }) },
+  );
+}
+
+export async function depositComputeFund(amount: number) {
+  return jsonRequest<{ ok: boolean; deposited: number }>(
+    "/api/compute/ledger/deposit",
+    { method: "POST", body: JSON.stringify({ amount }) },
+  );
+}
+
+export async function getComputeLedger() {
+  return jsonRequest<{ ledger: LedgerInfo }>("/api/compute/ledger");
+}
+
+export async function getComputeLedgerProviders() {
+  return jsonRequest<{
+    providers: Array<{ provider: string; balance: string; pendingRefund: string }>;
+  }>("/api/compute/ledger/providers");
 }
 
 export async function resolveEnsName(name: string) {
@@ -173,6 +215,7 @@ export async function attestInputs(inputs: unknown): Promise<AttestResponse> {
 export type ReasonResponse = {
   output: string;
   attestation?: string;
+  verified: boolean | null;
   model: string;
   providerAddress: string;
 };
@@ -217,6 +260,92 @@ export async function executeCommitment(
     method: "POST",
     body: JSON.stringify({ agentEns, commitmentHash }),
   });
+}
+
+// AXL — Agent discovery + delegation
+
+export type DiscoveredAgent = {
+  ensName: string;
+  records: Record<string, string>;
+  agent: {
+    wallet: string;
+    stake: string;
+    tier: number;
+    active: boolean;
+    auditors: string[];
+    commitmentCount: string;
+    slashCount: string;
+  } | null;
+  sailContract: string;
+  reachable: boolean;
+};
+
+export async function discoverAgent(ensName: string): Promise<DiscoveredAgent> {
+  return jsonRequest(`/api/axl/discover/${encodeURIComponent(ensName)}`);
+}
+
+export type DelegationRecord = {
+  id: string;
+  workerEns: string;
+  workerPeerId: string;
+  task: string;
+  context?: unknown;
+  sentAt: number;
+  status: "pending" | "completed" | "failed";
+  result?: {
+    type: string;
+    from: string;
+    taskId: string;
+    commitmentHash: string;
+    cid: string;
+    txHash: string;
+    output: string;
+    model?: string;
+    verified?: boolean | null;
+    timestamp: number;
+  };
+  error?: string;
+};
+
+export async function delegateTask(input: {
+  workerEns: string;
+  task: string;
+  agentEns: string;
+  context?: unknown;
+}): Promise<DelegationRecord> {
+  return jsonRequest("/api/axl/delegate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getDelegations() {
+  return jsonRequest<{ delegations: DelegationRecord[] }>("/api/axl/delegations");
+}
+
+export async function getDelegation(id: string) {
+  return jsonRequest<DelegationRecord>(`/api/axl/delegations/${id}`);
+}
+
+export type ProcessedTask = {
+  taskId: string;
+  from: string;
+  task: string;
+  status: "processing" | "completed" | "failed";
+  result?: DelegationRecord["result"];
+  error?: string;
+};
+
+export async function getProcessedTasks() {
+  return jsonRequest<{ tasks: ProcessedTask[] }>("/api/axl/tasks");
+}
+
+export async function startTaskRouter() {
+  return jsonRequest<{ started: boolean }>("/api/axl/router/start", { method: "POST" });
+}
+
+export async function stopTaskRouter() {
+  return jsonRequest<{ stopped: boolean }>("/api/axl/router/stop", { method: "POST" });
 }
 
 // Audit

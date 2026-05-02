@@ -115,10 +115,90 @@ api.post("/reason", async (req, res) => {
   }
 });
 
-api.get("/compute/providers", async (_req, res) => {
+api.get("/compute/providers", async (req, res) => {
   try {
+    const modelHint = req.query.model as string | undefined;
     const providers = await compute.listInferenceProviders();
-    res.json(jsonSafe({ providers }));
+    const mapped = providers.map((p) => ({
+      provider: p.provider,
+      model: p.model,
+      url: p.url,
+      inputPrice: p.inputPrice?.toString(),
+      outputPrice: p.outputPrice?.toString(),
+      verifiability: p.verifiability,
+      teeSignerAcknowledged: p.teeSignerAcknowledged,
+    }));
+    if (modelHint) {
+      const hint = modelHint.toLowerCase();
+      const filtered = mapped.filter((p) => p.model?.toLowerCase().includes(hint));
+      return res.json({ providers: filtered, total: filtered.length });
+    }
+    res.json({ providers: mapped, total: mapped.length });
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+// -------------------------------------------------------------------------
+// 0G Compute — Ledger management
+// -------------------------------------------------------------------------
+
+api.post("/compute/ledger/setup", async (req, res) => {
+  try {
+    const { amount = 1 } = req.body ?? {};
+    const result = await compute.setupLedger(Number(amount));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+api.post("/compute/ledger/deposit", async (req, res) => {
+  try {
+    const { amount } = req.body ?? {};
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ error: "amount required (in 0G tokens)" });
+    }
+    await compute.depositFund(Number(amount));
+    res.json({ ok: true, deposited: Number(amount) });
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+api.get("/compute/ledger", async (_req, res) => {
+  try {
+    const raw = await compute.getLedger();
+    // SDK returns a tuple [user, availableBalance, totalBalance, additionalInfo]
+    // Normalize into a proper object for the frontend.
+    const ledger = Array.isArray(raw)
+      ? {
+          user: String(raw[0] ?? ""),
+          availableBalance: String(raw[1] ?? "0"),
+          totalBalance: String(raw[2] ?? "0"),
+          additionalInfo: String(raw[3] ?? ""),
+        }
+      : {
+          user: String((raw as Record<string, unknown>).user ?? ""),
+          availableBalance: String((raw as Record<string, unknown>).availableBalance ?? "0"),
+          totalBalance: String((raw as Record<string, unknown>).totalBalance ?? "0"),
+          additionalInfo: String((raw as Record<string, unknown>).additionalInfo ?? ""),
+        };
+    res.json({ ledger });
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+api.get("/compute/ledger/providers", async (_req, res) => {
+  try {
+    const providers = await compute.getProvidersWithBalance();
+    const mapped = providers.map(([addr, balance, pending]) => ({
+      provider: addr,
+      balance: balance.toString(),
+      pendingRefund: pending.toString(),
+    }));
+    res.json({ providers: mapped });
   } catch (err) {
     res.status(500).json({ error: contractError(err) });
   }
@@ -148,6 +228,7 @@ api.post("/commit", async (req, res) => {
       txHash: result.txHash,
     });
   } catch (err) {
+    console.error("[commit] error:", (err as Error).message ?? err);
     res.status(500).json({ error: contractError(err) });
   }
 });

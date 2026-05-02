@@ -15,6 +15,7 @@ import { axlRoutes } from "./api/axl-routes.js";
 import { SAIL_ADDRESS, operatorAddress } from "./contract/sail.js";
 import { startAxlNode } from "../gensyn/node.js";
 import { isAlive as axlAlive } from "../gensyn/client.js";
+import { startTaskRouter } from "../gensyn/task-router.js";
 
 const app = express();
 
@@ -52,6 +53,7 @@ async function boot() {
   } else {
     const alive = await axlAlive().catch(() => false);
     console.log(`[AXL] bridge at ${env.axl.bridgeUrl} — ${alive ? "online" : "offline (start manually)"}`);
+    if (alive) startTaskRouter();
   }
 
   app.listen(env.server.port, env.server.host, () => {
