@@ -17,7 +17,6 @@
 import { randomUUID } from "node:crypto";
 import * as axl from "./client.js";
 import * as pipeline from "../src/api/pipeline.js";
-import type { Hex } from "viem";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -154,7 +153,7 @@ async function processIncomingTask(msg: axl.ReceivedMessage): Promise<void> {
       txHash: commit.txHash,
       output: reasoning.output,
       model: reasoning.model,
-      verified: reasoning.verified,
+      verified: !!reasoning.attestation, // attestation present = ZK-verified
       timestamp: Date.now(),
     };
 
@@ -205,7 +204,6 @@ async function processIncomingTask(msg: axl.ReceivedMessage): Promise<void> {
 export async function delegateTask(
   workerPeerId: string,
   workerEns: string,
-  agentEns: string,
   task: string,
   context?: unknown,
 ): Promise<DelegationRecord> {
@@ -218,7 +216,7 @@ export async function delegateTask(
     taskId: id,
     task,
     context,
-    agentEns,
+    agentEns: workerEns, // worker commits under its own ENS, not the hiring agent's
     replyTopic: "sail.result",
     timestamp: Date.now(),
   };

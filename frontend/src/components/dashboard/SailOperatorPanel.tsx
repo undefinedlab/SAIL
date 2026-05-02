@@ -275,6 +275,10 @@ export function SailOperatorPanel() {
 
     try {
       if (!regEns.trim()) throw new Error("ENS name required");
+      const parentName = process.env.NEXT_PUBLIC_ENS_PARENT_NAME ?? "sail.eth";
+      const rawEns = regEns.trim();
+      // Auto-append parent if user typed just a label (e.g. "swarnim" → "swarnim.sail.eth")
+      const fullEns = rawEns.includes(".") ? rawEns : `${rawEns}.${parentName}`;
       const auditors = regAuditors
         .split(",")
         .map((item) => item.trim())
@@ -282,12 +286,13 @@ export function SailOperatorPanel() {
       if (!auditors.length) throw new Error("At least one auditor address required");
 
       const result = await registerAgent({
-        ens: regEns.trim(),
+        ens: fullEns,
         tier: regTier,
         auditors,
         stakeEth: regStake,
       });
       setRegResult({ txHash: result.txHash, ens: result.ens });
+      setRegEns(result.ens);  // sync input to show the full name that was registered
       setPipeEns(result.ens);
       setMonEns(result.ens);
       setIdentityName(result.ens);
@@ -635,10 +640,12 @@ export function SailOperatorPanel() {
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="mb-1 block text-xs text-neutral-500">ENS name</label>
+                <label className="mb-1 block text-xs text-neutral-500">
+                  ENS name <span className="text-neutral-400">— label or full name (e.g. swarnim or swarnim.sail.eth)</span>
+                </label>
                 <input
                   className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                  placeholder="myagent.sail.eth"
+                  placeholder="swarnim.sail.eth"
                   value={regEns}
                   onChange={(event) => setRegEns(event.target.value)}
                 />
@@ -1092,10 +1099,28 @@ export function SailOperatorPanel() {
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs text-neutral-500">AXL peer id</label>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="text-xs text-neutral-500">AXL peer id</label>
+                    <button
+                      type="button"
+                      className="text-[10px] text-[#05058a] hover:underline disabled:opacity-40"
+                      disabled={backend.status !== "online"}
+                      onClick={async () => {
+                        try {
+                          const status = await getAxlStatus();
+                          if (status.peerId) setIdentityAxlPeerId(status.peerId);
+                          else alert("AXL node is offline — restart the backend with AXL_AUTO_START=true");
+                        } catch {
+                          alert("Could not fetch AXL peer ID");
+                        }
+                      }}
+                    >
+                      Auto-fill from AXL
+                    </button>
+                  </div>
                   <input
                     className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
-                    placeholder="12D3KooW..."
+                    placeholder="12D3KooW… (or click Auto-fill)"
                     value={identityAxlPeerId}
                     onChange={(event) => setIdentityAxlPeerId(event.target.value)}
                   />

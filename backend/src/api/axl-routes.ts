@@ -123,7 +123,6 @@ axlRoutes.post("/delegate", async (req, res) => {
     const delegation = await taskRouter.delegateTask(
       peerId,
       workerEns,
-      agentEns,
       task,
       context,
     );
