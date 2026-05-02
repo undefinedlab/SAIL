@@ -2,8 +2,8 @@
  * SAIL backend entrypoint.
  *
  * Boots an Express HTTP server for the frontend dashboards.
- * Run `npm run mcp` separately to expose SAIL tools via the MCP protocol
- * for agent frameworks (LangChain, CrewAI, ElizaOS, OpenClaw, Claude).
+ * Streamable HTTP MCP is mounted at /mcp on this server (Cursor remote URL).
+ * For stdio (local Cursor command), run `npm run mcp` separately.
  */
 
 import express from "express";
@@ -16,11 +16,14 @@ import { SAIL_ADDRESS, operatorAddress } from "./contract/sail.js";
 import { startAxlNode } from "../gensyn/node.js";
 import { isAlive as axlAlive } from "../gensyn/client.js";
 import { startTaskRouter } from "../gensyn/task-router.js";
+import { registerSailMcpHttpRoutes, SAIL_MCP_HTTP_PATH } from "./mcp/http-server.js";
 
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
 app.use(cors({ origin: env.server.corsOrigin === "*" ? true : env.server.corsOrigin }));
+
+registerSailMcpHttpRoutes(app);
 
 app.get("/health", async (_req, res) => {
   const axl = await axlAlive().catch(() => false);
@@ -30,6 +33,7 @@ app.get("/health", async (_req, res) => {
     operator: operatorAddress,
     chainId: env.sail.chainId,
     axl: { online: axl, bridgeUrl: env.axl.bridgeUrl },
+    mcp: { streamableHttp: SAIL_MCP_HTTP_PATH },
     timestamp: new Date().toISOString(),
   });
 });
@@ -63,7 +67,7 @@ async function boot() {
     console.log(`  Chain ID    ${env.sail.chainId}`);
     console.log(`  Lit net     ${env.lit.network}`);
     console.log(`  AXL bridge  ${env.axl.bridgeUrl}`);
-    console.log(`\n  MCP server  run: npm run mcp`);
+    console.log(`\n  MCP (HTTP)  same origin → /mcp   stdio local → npm run mcp`);
   });
 }
 
