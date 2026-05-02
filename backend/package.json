@@ -19,7 +19,8 @@
     "mcp:http": "MCP_TRANSPORT=http tsx src/mcp/index.ts",
     "mcp:http:prod": "MCP_TRANSPORT=http node dist/src/mcp/index.js",
     "setup-compute": "tsx src/scripts/setup-compute.ts",
-    "setup-lit": "tsx src/scripts/setup-lit.ts"
+    "setup-lit": "tsx src/scripts/setup-lit.ts",
+    "decrypt-commitment": "tsx src/scripts/decrypt-commitment-auditor.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-compute-ts-sdk": "^0.8.0",
