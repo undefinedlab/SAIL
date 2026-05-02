@@ -42,6 +42,10 @@ export async function healthCheck() {
     contract: string;
     operator: string;
     chainId: number;
+    axl?: {
+      online: boolean;
+      bridgeUrl?: string;
+    };
     timestamp: string;
   }>("/health");
 }
@@ -73,6 +77,87 @@ export async function getCommitment(hash: string) {
       executed: boolean;
     };
   }>(`/api/commitments/${hash}`);
+}
+
+export async function getComputeProviders() {
+  return jsonRequest<{
+    providers: Array<Record<string, unknown>>;
+  }>("/api/compute/providers");
+}
+
+export async function resolveEnsName(name: string) {
+  return jsonRequest<{
+    ensName: string;
+    records: Record<string, string>;
+  }>(`/api/ens/resolve/${encodeURIComponent(name)}`);
+}
+
+export async function ownsEnsName(name: string) {
+  return jsonRequest<{
+    ensName: string;
+    owns: boolean;
+  }>(`/api/ens/owns/${encodeURIComponent(name)}`);
+}
+
+export async function registerEnsSubname(input: {
+  parentName: string;
+  subLabel: string;
+  records: Record<string, string>;
+  walletAddr?: string;
+}) {
+  return jsonRequest<{
+    ensName: string;
+    txHashes: `0x${string}`[];
+    pendingRecords?: boolean;
+  }>("/api/ens/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAxlStatus() {
+  return jsonRequest<{
+    online: boolean;
+    peerId?: string;
+    address?: string;
+    peers?: Array<{ peerId: string; address: string }>;
+  }>("/api/axl/status");
+}
+
+export async function sendAxlMessage(input: {
+  to: string;
+  message: string;
+  topic?: string;
+}) {
+  return jsonRequest<{ sent: boolean }>("/api/axl/send", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function receiveAxlMessages(since?: number) {
+  const qs = since ? `?since=${since}` : "";
+  return jsonRequest<{
+    messages: Array<{
+      from: string;
+      message: string;
+      topic?: string;
+      timestamp: number;
+    }>;
+  }>(`/api/axl/recv${qs}`);
+}
+
+// Register
+export async function registerAgent(input: {
+  ens: string;
+  tier?: 0 | 1 | 2;
+  auditors: string[];
+  stakeEth?: string;
+}) {
+  return jsonRequest<{ txHash: `0x${string}`; ens: string; agent: unknown }>("/api/register", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 // Pipeline

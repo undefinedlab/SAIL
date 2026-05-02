@@ -2,6 +2,19 @@ import { parseAbi } from "viem";
 
 /** Aligned with `contract/src/SAIL.sol` (deployed to Ethereum Sepolia). */
 export const sailAbi = parseAbi([
+  // Errors
+  "error SAIL__NotOwner()",
+  "error SAIL__AlreadyRegistered()",
+  "error SAIL__InsufficientStake()",
+  "error SAIL__AgentNotActive()",
+  "error SAIL__CommitmentNotFound()",
+  "error SAIL__AlreadyExecuted()",
+  "error SAIL__NonceMismatch()",
+  "error SAIL__NotAuthorizedAuditor()",
+  "error SAIL__CommitmentAlreadyExists()",
+  "error SAIL__TransferFailed()",
+  "error SAIL__NotAgentOperator()",
+  "error SAIL__NoAuditors()",
   // Reads
   "function MINIMUM_STAKE() view returns (uint256)",
   "function owner() view returns (address)",

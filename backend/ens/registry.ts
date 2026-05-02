@@ -31,8 +31,11 @@ import { normalize } from "viem/ens";
 import { env } from "../src/config/env.js";
 
 // ---- Sepolia ENS contract addresses ----------------------------------------
-const ENS_REGISTRY = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
+const ENS_REGISTRY    = "0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e" as Address;
 const PUBLIC_RESOLVER = "0x8FADE66B79cC9f707aB26799354482EB93a5B7dD" as Address;
+// NameWrapper wraps names via ERC-1155; registry.owner() returns this address
+// for any wrapped name. The real owner is tracked inside NameWrapper.
+const NAME_WRAPPER    = "0x0635513f179D50A207757E05759CbD106d7dFcE8" as Address;
 
 // ---- Minimal ABIs -----------------------------------------------------------
 const REGISTRY_ABI = [
@@ -55,6 +58,44 @@ const REGISTRY_ABI = [
     inputs: [{ name: "node", type: "bytes32" }],
     outputs: [{ name: "", type: "address" }],
     stateMutability: "view",
+  },
+] as const;
+
+// NameWrapper exposes ERC-1155 ownerOf. Token ID = uint256(namehash).
+const NAME_WRAPPER_ABI = [
+  {
+    name: "ownerOf",
+    type: "function",
+    inputs: [{ name: "id", type: "uint256" }],
+    outputs: [{ name: "", type: "address" }],
+    stateMutability: "view",
+  },
+  {
+    // Returns (owner, fuses, expiry) for a wrapped name. tokenId = uint256(namehash).
+    name: "getData",
+    type: "function",
+    inputs: [{ name: "id", type: "uint256" }],
+    outputs: [
+      { name: "owner",  type: "address" },
+      { name: "fuses",  type: "uint32"  },
+      { name: "expiry", type: "uint64"  },
+    ],
+    stateMutability: "view",
+  },
+  {
+    name: "setSubnodeRecord",
+    type: "function",
+    inputs: [
+      { name: "parentNode", type: "bytes32" },
+      { name: "label",      type: "string"  },
+      { name: "owner",      type: "address" },
+      { name: "resolver",   type: "address" },
+      { name: "ttl",        type: "uint64"  },
+      { name: "fuses",      type: "uint32"  },
+      { name: "expiry",     type: "uint64"  },
+    ],
+    outputs: [{ name: "node", type: "bytes32" }],
+    stateMutability: "nonpayable",
   },
 ] as const;
 
@@ -142,55 +183,89 @@ export async function registerAgentSubname(
   subLabel: string,
   records: AgentTextRecords,
   walletAddr?: Address,
-): Promise<{ ensName: string; txHashes: Hex[] }> {
+): Promise<{ ensName: string; txHashes: Hex[]; pendingRecords?: boolean }> {
   const ensName = `${subLabel}.${parentName}`;
   const normalised = normalize(parentName);
   const parentNode = namehash(normalised);
   const subNode = namehash(normalize(ensName));
   const txHashes: Hex[] = [];
 
-  // 1. setSubnodeRecord — create the subdomain
-  const subTx = await walletClient.writeContract({
-    address: ENS_REGISTRY,
-    abi: REGISTRY_ABI,
-    functionName: "setSubnodeRecord",
-    args: [
-      parentNode,
-      labelHash(subLabel),
-      account.address,
-      PUBLIC_RESOLVER,
-      0n,
-    ],
-  });
+  // 1. setSubnodeRecord — route through NameWrapper if parent is wrapped
+  const parentWrapped = await isWrapped(parentName);
+
+  let subTx: Hex;
+  if (parentWrapped) {
+    // Inherit parent's expiry so the subname appears as a wrapped name in the ENS app.
+    const [, , parentExpiry] = await publicClient.readContract({
+      address: NAME_WRAPPER,
+      abi: NAME_WRAPPER_ABI,
+      functionName: "getData",
+      args: [BigInt(parentNode)],
+    });
+
+    subTx = await walletClient.writeContract({
+      address: NAME_WRAPPER,
+      abi: NAME_WRAPPER_ABI,
+      functionName: "setSubnodeRecord",
+      args: [
+        parentNode,
+        subLabel,       // NameWrapper takes label string, not labelHash
+        account.address,
+        PUBLIC_RESOLVER,
+        0n,             // ttl
+        0,              // fuses — 0 = no fuses burned
+        parentExpiry,   // inherit parent expiry → subname shows up in ENS app
+      ],
+    });
+  } else {
+    // Legacy registry.setSubnodeRecord
+    subTx = await walletClient.writeContract({
+      address: ENS_REGISTRY,
+      abi: REGISTRY_ABI,
+      functionName: "setSubnodeRecord",
+      args: [
+        parentNode,
+        labelHash(subLabel),
+        account.address,
+        PUBLIC_RESOLVER,
+        0n,
+      ],
+    });
+  }
   txHashes.push(subTx);
   await publicClient.waitForTransactionReceipt({ hash: subTx });
 
-  // 2. setAddr — point the name to the wallet
-  if (walletAddr ?? account.address) {
-    const addrTx = await walletClient.writeContract({
-      address: PUBLIC_RESOLVER,
-      abi: RESOLVER_ABI,
-      functionName: "setAddr",
-      args: [subNode, walletAddr ?? account.address],
-    });
-    txHashes.push(addrTx);
-    await publicClient.waitForTransactionReceipt({ hash: addrTx });
-  }
+  // setAddr + setText run in the background so the HTTP response returns fast.
+  // The subname is created on-chain; records follow within ~1 min.
+  void (async () => {
+    try {
+      // 2. setAddr — point the name to the wallet
+      const addr = walletAddr ?? account.address;
+      const addrTx = await walletClient.writeContract({
+        address: PUBLIC_RESOLVER,
+        abi: RESOLVER_ABI,
+        functionName: "setAddr",
+        args: [subNode, addr],
+      });
+      await publicClient.waitForTransactionReceipt({ hash: addrTx });
 
-  // 3. setText — write each record
-  for (const [key, value] of Object.entries(records)) {
-    if (!value) continue;
-    const textTx = await walletClient.writeContract({
-      address: PUBLIC_RESOLVER,
-      abi: RESOLVER_ABI,
-      functionName: "setText",
-      args: [subNode, key, value],
-    });
-    txHashes.push(textTx);
-    await publicClient.waitForTransactionReceipt({ hash: textTx });
-  }
+      // 3. setText — write each record
+      for (const [key, value] of Object.entries(records)) {
+        if (!value) continue;
+        const textTx = await walletClient.writeContract({
+          address: PUBLIC_RESOLVER,
+          abi: RESOLVER_ABI,
+          functionName: "setText",
+          args: [subNode, key, value],
+        });
+        await publicClient.waitForTransactionReceipt({ hash: textTx });
+      }
+    } catch (err) {
+      console.error("[ENS] background record write failed:", (err as Error).message);
+    }
+  })();
 
-  return { ensName, txHashes };
+  return { ensName, txHashes, pendingRecords: true };
 }
 
 /**
@@ -227,18 +302,62 @@ export async function resolveAgentRecords(ensName: string): Promise<AgentTextRec
 }
 
 /**
- * Quick sanity check: does the operator wallet own this ENS name?
+ * Resolve the current owner of an ENS name.
+ * Handles both unwrapped names (registry) and NameWrapper-wrapped names.
  */
-export async function ownsName(ensName: string): Promise<boolean> {
+export async function getOwner(ensName: string): Promise<Address | null> {
   try {
     const node = namehash(normalize(ensName));
-    const owner = await publicClient.readContract({
+    const regOwner = await publicClient.readContract({
       address: ENS_REGISTRY,
       abi: REGISTRY_ABI,
       functionName: "owner",
       args: [node],
     });
-    return owner.toLowerCase() === account.address.toLowerCase();
+
+    // If registry owner IS the NameWrapper, check NameWrapper for the real owner
+    if (regOwner.toLowerCase() === NAME_WRAPPER.toLowerCase()) {
+      try {
+        const nwOwner = await publicClient.readContract({
+          address: NAME_WRAPPER,
+          abi: NAME_WRAPPER_ABI,
+          functionName: "ownerOf",
+          args: [BigInt(node)],
+        });
+        return nwOwner as Address;
+      } catch {
+        return regOwner as Address;
+      }
+    }
+
+    return regOwner as Address;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check whether the operator wallet owns this ENS name.
+ * Works for both legacy (unwrapped) and NameWrapper-wrapped names.
+ */
+export async function ownsName(ensName: string): Promise<boolean> {
+  const owner = await getOwner(ensName);
+  return owner?.toLowerCase() === account.address.toLowerCase();
+}
+
+/**
+ * Check if a name is wrapped in the NameWrapper.
+ */
+async function isWrapped(ensName: string): Promise<boolean> {
+  try {
+    const node = namehash(normalize(ensName));
+    const regOwner = await publicClient.readContract({
+      address: ENS_REGISTRY,
+      abi: REGISTRY_ABI,
+      functionName: "owner",
+      args: [node],
+    });
+    return regOwner.toLowerCase() === NAME_WRAPPER.toLowerCase();
   } catch {
     return false;
   }

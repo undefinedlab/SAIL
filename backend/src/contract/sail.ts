@@ -19,6 +19,19 @@ import { sepolia } from "viem/chains";
 import { env } from "../config/env.js";
 
 export const SAIL_ABI = parseAbi([
+  // Errors
+  "error SAIL__NotOwner()",
+  "error SAIL__AlreadyRegistered()",
+  "error SAIL__InsufficientStake()",
+  "error SAIL__AgentNotActive()",
+  "error SAIL__CommitmentNotFound()",
+  "error SAIL__AlreadyExecuted()",
+  "error SAIL__NonceMismatch()",
+  "error SAIL__NotAuthorizedAuditor()",
+  "error SAIL__CommitmentAlreadyExists()",
+  "error SAIL__TransferFailed()",
+  "error SAIL__NotAgentOperator()",
+  "error SAIL__NoAuditors()",
   "function register(string ens, uint8 tier, address[] auditors) external payable",
   "function addStake(string ens) external payable",
   "function updateAuditors(string ens, address[] auditors) external",
