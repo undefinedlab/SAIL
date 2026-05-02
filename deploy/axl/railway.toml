@@ -1,0 +1,11 @@
+# Second Railway service: AXL bridge only.
+# In the Railway project: New Service → this repo → Root Directory = deploy/axl
+# Set SAIL (first service) env: AXL_BRIDGE_URL=https://<this-service>.up.railway.app
+# and AXL_AUTO_START=false on SAIL.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Railway injects PORT; entrypoint uses it for api_port.

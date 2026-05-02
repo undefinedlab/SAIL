@@ -18,11 +18,38 @@ import { isAlive } from "./client.js";
 
 const execFile = promisify(execFileCb);
 
-const AXL_DIR = path.join(process.cwd(), ".axl");
-const REPO_DIR = path.join(AXL_DIR, "repo");
-const CONFIG_PATH = path.join(AXL_DIR, "node-config.json");
-const KEY_PATH = path.join(AXL_DIR, "private.pem");
-const BINARY_PATH = path.join(REPO_DIR, "node");
+/**
+ * Layout (local dev): `<cwd>/.axl/repo`, binary `<cwd>/.axl/repo/node`
+ *
+ * Override for split deploy / Docker:
+ *   AXL_HOME            — data dir (default: `<cwd>/.axl`) — holds config + key unless overridden
+ *   AXL_REPO_PATH       — clone/build dir (default: `<AXL_HOME>/repo`)
+ *   AXL_CONFIG_PATH     — node-config.json (default: `<AXL_HOME>/node-config.json`)
+ *   AXL_PRIVATE_KEY_PATH — ed25519 PEM (default: `<AXL_HOME>/private.pem`)
+ *   AXL_BINARY_PATH     — if set and file exists, skip git clone + `go build` (prebuilt `node` binary)
+ */
+function axlHome(): string {
+  const raw = process.env["AXL_HOME"]?.trim();
+  return raw && raw.length > 0 ? raw : path.join(process.cwd(), ".axl");
+}
+
+const AXL_DIR = axlHome();
+const REPO_DIR =
+  process.env["AXL_REPO_PATH"]?.trim() && process.env["AXL_REPO_PATH"].trim().length > 0
+    ? path.resolve(process.env["AXL_REPO_PATH"].trim())
+    : path.join(AXL_DIR, "repo");
+const CONFIG_PATH =
+  process.env["AXL_CONFIG_PATH"]?.trim() && process.env["AXL_CONFIG_PATH"].trim().length > 0
+    ? path.resolve(process.env["AXL_CONFIG_PATH"].trim())
+    : path.join(AXL_DIR, "node-config.json");
+const KEY_PATH =
+  process.env["AXL_PRIVATE_KEY_PATH"]?.trim() && process.env["AXL_PRIVATE_KEY_PATH"].trim().length > 0
+    ? path.resolve(process.env["AXL_PRIVATE_KEY_PATH"].trim())
+    : path.join(AXL_DIR, "private.pem");
+const BINARY_PATH =
+  process.env["AXL_BINARY_PATH"]?.trim() && process.env["AXL_BINARY_PATH"].trim().length > 0
+    ? path.resolve(process.env["AXL_BINARY_PATH"].trim())
+    : path.join(REPO_DIR, "node");
 
 let axlProcess: ChildProcess | null = null;
 
@@ -61,6 +88,10 @@ async function ensureGoInstalled(): Promise<void> {
 }
 
 async function ensureRepo(): Promise<void> {
+  if (existsSync(BINARY_PATH)) {
+    return;
+  }
+
   mkdirSync(AXL_DIR, { recursive: true });
 
   if (!existsSync(REPO_DIR)) {
@@ -81,9 +112,13 @@ function resolveGoToolchain(): string {
 }
 
 async function ensureBuiltBinary(): Promise<void> {
+  if (existsSync(BINARY_PATH)) {
+    return;
+  }
+
   await ensureGoInstalled();
   await ensureRepo();
-  await runOrThrow("go", ["build", "-o", "node", "./cmd/node/"], REPO_DIR, {
+  await runOrThrow("go", ["build", "-o", BINARY_PATH, "./cmd/node/"], REPO_DIR, {
     GOTOOLCHAIN: resolveGoToolchain(),
   });
 }
@@ -93,7 +128,7 @@ async function ensureIdentityKey(): Promise<void> {
     return;
   }
 
-  mkdirSync(AXL_DIR, { recursive: true });
+  mkdirSync(path.dirname(KEY_PATH), { recursive: true });
 
   const macOpenSsl = "/opt/homebrew/opt/openssl/bin/openssl";
   if (process.platform === "darwin" && existsSync(macOpenSsl)) {
@@ -138,8 +173,10 @@ export async function startAxlNode(timeoutMs = 30_000): Promise<void> {
   await ensureIdentityKey();
   writeConfig();
 
+  const spawnCwd = existsSync(REPO_DIR) ? REPO_DIR : path.dirname(BINARY_PATH);
+
   axlProcess = spawn(BINARY_PATH, ["-config", CONFIG_PATH], {
-    cwd: REPO_DIR,
+    cwd: spawnCwd,
     stdio: ["ignore", "pipe", "pipe"],
     detached: false,
   });
