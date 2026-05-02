@@ -70,3 +70,19 @@ export const env = {
 } as const;
 
 export type Env = typeof env;
+
+/**
+ * Value for `cors({ origin })`. Comma-separated `CORS_ORIGIN` becomes an array so browsers get a
+ * single reflected `Access-Control-Allow-Origin` (a comma-separated list in one header is invalid).
+ */
+export function corsOriginOption(): boolean | string | string[] {
+  const raw = env.server.corsOrigin.trim();
+  if (raw === "*") return true;
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+  if (parts.length === 0) return "http://localhost:3000";
+  if (parts.length === 1) return parts[0]!;
+  return parts;
+}

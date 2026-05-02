@@ -8,7 +8,7 @@
 
 import express from "express";
 import cors from "cors";
-import { env } from "./config/env.js";
+import { corsOriginOption, env } from "./config/env.js";
 import { api } from "./api/routes.js";
 import { ensRoutes } from "./api/ens-routes.js";
 import { axlRoutes } from "./api/axl-routes.js";
@@ -21,7 +21,7 @@ import { registerSailMcpHttpRoutes, SAIL_MCP_HTTP_PATH } from "./mcp/http-server
 const app = express();
 
 app.use(express.json({ limit: "2mb" }));
-app.use(cors({ origin: env.server.corsOrigin === "*" ? true : env.server.corsOrigin }));
+app.use(cors({ origin: corsOriginOption() }));
 
 registerSailMcpHttpRoutes(app);
 
