@@ -15,6 +15,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { env } from "../config/env.js";
 import { createSailMcpServer } from "./server.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { mcpHttpAuthOkHeaders } from "./mcp-auth.js";
 
 export const SAIL_MCP_HTTP_PATH =
   (process.env["MCP_HTTP_PATH"] ?? "/mcp").trim() || "/mcp";
@@ -32,17 +33,8 @@ function bodyHasInitialize(body: unknown): boolean {
   return isInitializeRequest(body);
 }
 
-function authOk(req: IncomingMessage): boolean {
-  const token = env.mcpHttp.token;
-  if (!token) return true;
-  const auth = req.headers.authorization;
-  if (auth === `Bearer ${token}`) return true;
-  const h = req.headers["x-sail-mcp-token"];
-  return typeof h === "string" && h === token;
-}
-
 async function handleMcpStreamableHttp(req: Request, res: Response): Promise<void> {
-  if (!authOk(req)) {
+  if (!mcpHttpAuthOkHeaders(req.headers)) {
     res.status(401).json({ error: "unauthorized" });
     return;
   }
@@ -59,6 +51,7 @@ async function handleMcpStreamableHttp(req: Request, res: Response): Promise<voi
     const mcp = createSailMcpServer();
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => randomUUID(),
+      enableJsonResponse: env.mcpHttp.enableJsonResponse,
       onsessionclosed: (sid) => {
         sessions.delete(sid);
       },

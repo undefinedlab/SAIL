@@ -77,6 +77,13 @@ export const env = {
     /** If set, require `Authorization: Bearer <token>` or `X-SAIL-MCP-Token`. */
     token: optional("MCP_HTTP_TOKEN", ""),
     /**
+     * When true, Streamable HTTP transport uses JSON responses where possible (SDK flag).
+     * May help some clients; sessions are still in-memory — use one replica or POST /api/mcp/invoke.
+     */
+    enableJsonResponse: optional("MCP_HTTP_ENABLE_JSON_RESPONSE", "false") === "true",
+    /** POST /api/mcp/invoke — same tools as MCP, no JSON-RPC session (default on). */
+    invokeEnabled: optional("MCP_HTTP_INVOKE", "true") === "true",
+    /**
      * Comma-separated Host header values allowed when binding to 0.0.0.0 (DNS rebinding).
      * Example: `myapp.up.railway.app,localhost:3002`
      */

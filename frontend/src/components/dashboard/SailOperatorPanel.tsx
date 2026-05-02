@@ -33,7 +33,7 @@ import {
 } from "@/lib/sail-api";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
 import { expectedChain } from "@/lib/wagmi-config";
-import { StatusDot } from "@/components/ui/StatusDot";
+import { IntegrationStatusCards } from "@/components/dashboard/IntegrationStatusCards";
 import { TxLink } from "@/components/ui/TxLink";
 
 const SAIL_ERRORS: Record<string, string> = {
@@ -605,61 +605,26 @@ export function SailOperatorPanel() {
 
   return (
     <div className="space-y-0 text-sm">
-      <div className="flex flex-col gap-4 border-b border-neutral-200 pb-5 md:flex-row md:items-start md:justify-between md:gap-8">
-        <div className="min-w-0 flex-1 space-y-3">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight text-[#05058a] md:text-2xl">Operator</h2>
-            <p className="mt-1 max-w-xl text-sm leading-relaxed text-neutral-600">
-              Run the accountability pipeline, register and watch agents, then wire ENS and AXL when you are ready to mesh.
-            </p>
+      <div className="space-y-3 border-b border-neutral-200 pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <IntegrationStatusCards backend={backend} variant="compact" />
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button type="button" className={primaryCls("agent")} onClick={() => setPrimary("agent")}>
+              Agent
+            </button>
+            <button type="button" className={primaryCls("pipeline")} onClick={() => setPrimary("pipeline")}>
+              Pipeline
+            </button>
+            <button type="button" className={primaryCls("network")} onClick={() => setPrimary("network")}>
+              Network
+            </button>
           </div>
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-neutral-500">
-            <span className="inline-flex items-center gap-1.5">
-              <StatusDot
-                status={backend.status}
-                label={
-                  backend.status === "online"
-                    ? "API"
-                    : backend.status === "offline"
-                      ? "API down"
-                      : "API…"
-                }
-              />
-            </span>
-            <span className="text-neutral-300">·</span>
-            <span>{expectedChain.name}</span>
-            {backend.axlOnline !== undefined ? (
-              <>
-                <span className="text-neutral-300">·</span>
-                <span>AXL {backend.axlOnline ? "up" : "down"}</span>
-              </>
-            ) : null}
-            {backend.contract ? (
-              <>
-                <span className="text-neutral-300">·</span>
-                <span className="font-mono text-[10px] text-neutral-400">
-                  {backend.contract.slice(0, 8)}…{backend.contract.slice(-6)}
-                </span>
-              </>
-            ) : null}
+        </div>
+        {chainMismatch ? (
+          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} in the top bar before submitting transactions.
           </p>
-          {chainMismatch ? (
-            <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-              Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} in the top bar before submitting transactions.
-            </p>
-          ) : null}
-        </div>
-        <div className="flex shrink-0 flex-row flex-wrap items-center justify-start gap-2 md:justify-end">
-          <button type="button" className={primaryCls("agent")} onClick={() => setPrimary("agent")}>
-            Agent
-          </button>
-          <button type="button" className={primaryCls("pipeline")} onClick={() => setPrimary("pipeline")}>
-            Pipeline
-          </button>
-          <button type="button" className={primaryCls("network")} onClick={() => setPrimary("network")}>
-            Network
-          </button>
-        </div>
+        ) : null}
       </div>
 
       {primary === "agent" ? (

@@ -4,8 +4,6 @@ import Link from "next/link";
 import { BayerDitherImage } from "@/components/hero/BayerDitherImage";
 import { Navbar, SiteFooter } from "@/components/landing";
 import { ConsoleFrame } from "@/components/dashboard/ConsoleFrame";
-import { InfraOverview } from "@/components/dashboard/InfraOverview";
-import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
 
 const OPERATOR_VISUAL =
   "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=900&q=80";
@@ -13,14 +11,12 @@ const AUDITOR_VISUAL =
   "https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=900&q=80";
 
 function DashboardSurface() {
-  const backend = useBackendStatus();
-
   return (
     <ConsoleFrame
       variant="minimal"
       eyebrow="Console"
       title="Let's Sail together"
-      description="Open Operator for commits, identity, and mesh — or Auditor to verify anchored work and the audit path."
+      description="Run the accountability pipeline, register and watch agents, then wire ENS and AXL when you are ready to mesh."
     >
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2">
@@ -71,43 +67,6 @@ function DashboardSurface() {
               </div>
             </div>
           </Link>
-        </div>
-
-        <InfraOverview backend={backend} />
-
-        <div className="grid gap-4 xl:grid-cols-3">
-          {[
-            {
-              title: "Test contract + storage",
-              body: "Use Operator → Pipeline to attest, commit, upload to 0G, and clear the execute gate in one guided flow.",
-              href: "/dashboard/operator",
-            },
-            {
-              title: "Test identity + mesh",
-              body: "Use Operator → Identity and Mesh to inspect ENS records, register a subname, poll AXL topology, and send messages.",
-              href: "/dashboard/operator",
-            },
-            {
-              title: "Test audit + slash path",
-              body: "Use Auditor → Lookup and Audit to inspect anchored commitments and verify sealed blob retrieval before any slash decision.",
-              href: "/dashboard/auditor",
-            },
-          ].map((item) => (
-            <article key={item.title} className="border border-[#05058a]/10 bg-[#f5f5f0] p-4">
-              <h2 className="text-lg font-bold tracking-[-0.02em] text-[#05058a]">
-                {item.title}
-              </h2>
-              <p className="mt-3 text-sm leading-relaxed text-[#05058a]/68">
-                {item.body}
-              </p>
-              <Link
-                href={item.href}
-                className="mt-5 inline-flex border border-[#05058a] px-3 py-2 text-xs uppercase tracking-[0.18em] text-[#05058a] transition-colors hover:bg-[#05058a] hover:text-white"
-              >
-                Open console
-              </Link>
-            </article>
-          ))}
         </div>
       </div>
     </ConsoleFrame>

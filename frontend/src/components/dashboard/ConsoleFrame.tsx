@@ -1,7 +1,7 @@
 type ConsoleFrameProps = {
   eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
   children: React.ReactNode;
   aside?: React.ReactNode;
   /** Plain header + content: no outer card, border, or tinted hero strip. */
@@ -26,9 +26,9 @@ export function ConsoleFrame({
           <h1 className="mt-3 max-w-4xl text-[clamp(34px,5vw,66px)] font-black leading-[0.92] tracking-[-0.04em] text-[#05058a]">
             {title}
           </h1>
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#05058a]/72">
-            {description}
-          </p>
+          {description ? (
+            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#05058a]/72">{description}</p>
+          ) : null}
         </div>
         <div>{children}</div>
       </section>
@@ -50,9 +50,9 @@ export function ConsoleFrame({
             <h1 className="mt-3 max-w-[14ch] text-[clamp(34px,5vw,66px)] font-black leading-[0.92] tracking-[-0.04em] text-[#05058a]">
               {title}
             </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#05058a]/72">
-              {description}
-            </p>
+            {description ? (
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#05058a]/72">{description}</p>
+            ) : null}
           </div>
 
           {aside ? (

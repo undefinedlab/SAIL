@@ -15,7 +15,7 @@ This doc walks through an attest inputs → commit on-chain → clear the execut
 
 ## 2. Cursor MCP config (reference)
 
-Project file: [`.cursor/mcp.json`](../../.cursor/mcp.json).
+Project file: [`.cursor/mcp.json`](../../.cursor/mcp.json). **Deploy / scaling / sessionless HTTP:** see [`backend/MCP-IMPORT.md`](../../backend/MCP-IMPORT.md).
 
 - **`sail`** — runs `npm run mcp` in `backend/` with your `.env.local` (stdio).
 - **`sail-production`** — points at your deployed Streamable HTTP URL, e.g. `https://<your-host>/mcp`.

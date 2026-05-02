@@ -17,6 +17,7 @@ import { startAxlNode } from "../gensyn/node.js";
 import { isAlive as axlAlive } from "../gensyn/client.js";
 import { startTaskRouter } from "../gensyn/task-router.js";
 import { registerSailMcpHttpRoutes, SAIL_MCP_HTTP_PATH } from "./mcp/http-server.js";
+import { mcpInvokeRoutes } from "./api/mcp-invoke-routes.js";
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.get("/health", async (_req, res) => {
   });
 });
 
+app.use("/api/mcp", mcpInvokeRoutes);
 app.use("/api", api);
 app.use("/api/ens", ensRoutes);
 app.use("/api/axl", axlRoutes);
