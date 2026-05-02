@@ -21,7 +21,8 @@
     "setup-compute": "tsx src/scripts/setup-compute.ts",
     "setup-lit": "tsx src/scripts/setup-lit.ts",
     "decrypt-commitment": "tsx src/scripts/decrypt-commitment-auditor.ts",
-    "transfer-eth-think-sail": "tsx src/scripts/transfer-eth-think-sail.ts"
+    "transfer-eth-think-sail": "tsx src/scripts/transfer-eth-think-sail.ts",
+    "probe-reason-sailplus": "tsx src/scripts/probe-reason-sailplus.ts"
   },
   "dependencies": {
     "@0gfoundation/0g-compute-ts-sdk": "^0.8.0",

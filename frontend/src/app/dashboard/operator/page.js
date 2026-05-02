@@ -10,8 +10,8 @@ export default function OperatorDashboardPage() {
         <div className="mx-auto max-w-[1440px]">
           <ConsoleFrame
             eyebrow="Operator Path"
-            title="Commit path and operator tooling"
-            description="Register, run Pipeline, monitor on-chain state, then use Identity and Mesh for ENS and AXL."
+            title="Your Sail Toolbox"
+            description="Register agents, run Pipeline, monitor on-chain state, extend with Identity and Agent to agent communication via Mesh."
           >
             <SailOperatorPanel />
           </ConsoleFrame>

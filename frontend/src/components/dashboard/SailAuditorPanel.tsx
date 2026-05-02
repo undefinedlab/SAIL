@@ -10,7 +10,7 @@ import { expectedChain, sailContractAddress } from "@/lib/wagmi-config";
 import { IntegrationStatusCards } from "@/components/dashboard/IntegrationStatusCards";
 import { TxLink } from "@/components/ui/TxLink";
 
-type Tab = "lookup" | "audit" | "slash";
+export type AuditorWorkspaceTab = "lookup" | "audit" | "slash";
 
 type AgentLedgerCommitment = {
   txHash: string;
@@ -41,11 +41,14 @@ type AuditResult = {
   note: string;
 };
 
-export function SailAuditorPanel() {
+type SailAuditorPanelProps = {
+  activeTab: AuditorWorkspaceTab;
+  onTabChange: (tab: AuditorWorkspaceTab) => void;
+};
+
+export function SailAuditorPanel({ activeTab: tab, onTabChange: setTab }: SailAuditorPanelProps) {
   const { isConnected, chain } = useAccount();
   const backend = useBackendStatus();
-
-  const [tab, setTab] = useState<Tab>("lookup");
 
   const [lookupEns, setLookupEns] = useState("");
   const [lookupAgent, setLookupAgent] = useState<LookupAgent | null>(null);
@@ -147,40 +150,18 @@ export function SailAuditorPanel() {
 
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
-  const tabCls = (value: Tab) =>
-    `rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.14em] transition-colors ${
-      tab === value
-        ? "bg-[#05058a] text-white shadow-sm"
-        : "border border-[#05058a]/20 bg-white text-[#05058a]/80 hover:border-[#05058a]/45 hover:text-[#05058a]"
-    }`;
-
   return (
-    <div className="space-y-0 text-sm">
-      <div className="space-y-3 border-b border-neutral-200 pb-4">
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-          <IntegrationStatusCards backend={backend} variant="compact" />
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <button type="button" className={tabCls("lookup")} onClick={() => setTab("lookup")}>
-              Lookup
-            </button>
-            <button type="button" className={tabCls("audit")} onClick={() => setTab("audit")}>
-              Audit
-            </button>
-            <button type="button" className={tabCls("slash")} onClick={() => setTab("slash")}>
-              Slash
-            </button>
-          </div>
-        </div>
-        {chainMismatch ? (
-          <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} before any slash transaction.
-          </p>
-        ) : null}
-      </div>
+    <div className="text-sm">
+      {chainMismatch ? (
+        <p className="mt-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Wallet is on {chain?.name ?? "another chain"}. Switch to {expectedChain.name} before any slash transaction.
+        </p>
+      ) : null}
 
-      <div className="pt-5">
-        {tab === "lookup" && (
-          <div className="space-y-4">
+      <div className="grid gap-6 pt-5 lg:grid-cols-[minmax(0,1fr)_minmax(220px,280px)] lg:items-stretch">
+        <main className="min-w-0">
+          {tab === "lookup" && (
+            <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Enter an agent ENS to load every on-chain <strong className="font-medium text-neutral-700">commit</strong> transaction for
               that agent. Each row is one anchored commitment you can open in Audit to fetch the sealed 0G blob.
@@ -291,11 +272,11 @@ export function SailAuditorPanel() {
             ) : lookupAgent && !lookupBusy ? (
               <p className="text-xs text-neutral-500">No CommitmentPosted events found for this ENS yet.</p>
             ) : null}
-          </div>
-        )}
+            </div>
+          )}
 
-        {tab === "audit" && (
-          <div className="space-y-4">
+          {tab === "audit" && (
+            <div className="space-y-4">
             <p className="text-xs text-neutral-500">
               Fetch the sealed Lit payload from 0G Storage and fingerprint the retrieved wire payload before any deeper reveal step.
             </p>
@@ -361,11 +342,11 @@ export function SailAuditorPanel() {
                 </details>
               </div>
             ) : null}
-          </div>
-        )}
+            </div>
+          )}
 
-        {tab === "slash" && (
-          <div className="space-y-4">
+          {tab === "slash" && (
+            <div className="space-y-4">
             <div className="rounded border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-800">
               <p className="font-semibold">Irreversible action</p>
               <p className="mt-1">
@@ -413,8 +394,16 @@ export function SailAuditorPanel() {
                 ✓ Slash confirmed. Agent is permanently deactivated and stake transferred.
               </div>
             ) : null}
+            </div>
+          )}
+        </main>
+
+        <aside className="flex min-h-0 flex-col lg:h-full lg:min-h-[12rem]">
+          <div className="hidden min-h-8 flex-1 lg:block" aria-hidden />
+          <div className="mt-6 flex justify-end border-t border-neutral-200 pt-4 lg:mt-0 lg:border-t-0 lg:pt-0">
+            <IntegrationStatusCards backend={backend} variant="compact" compactToolbar={false} />
           </div>
-        )}
+        </aside>
       </div>
     </div>
   );

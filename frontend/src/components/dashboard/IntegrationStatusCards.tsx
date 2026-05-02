@@ -5,6 +5,11 @@ type IntegrationStatusCardsProps = {
   backend: BackendInfo;
   /** Inline mini chips for toolbar layout (e.g. beside tab switcher). */
   variant?: "default" | "compact";
+  /**
+   * When `variant` is compact: `true` (default) uses `flex-1` for operator toolbar alignment.
+   * Set `false` for a sidebar / bottom-right cluster (no grow).
+   */
+  compactToolbar?: boolean;
 };
 
 const STACK_ITEMS = [
@@ -46,12 +51,20 @@ function itemStatus(backend: BackendInfo, itemKey: (typeof STACK_ITEMS)[number][
   return "online" as const;
 }
 
-export function IntegrationStatusCards({ backend, variant = "default" }: IntegrationStatusCardsProps) {
+export function IntegrationStatusCards({
+  backend,
+  variant = "default",
+  compactToolbar = true,
+}: IntegrationStatusCardsProps) {
   const items = STACK_ITEMS.map((item) => ({ item, status: itemStatus(backend, item.key) }));
 
   if (variant === "compact") {
     return (
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+      <div
+        className={`flex min-w-0 flex-wrap items-center gap-1 ${
+          compactToolbar ? "flex-1" : "justify-end"
+        }`}
+      >
         {items.map(({ item, status }) => (
           <article
             key={item.key}
