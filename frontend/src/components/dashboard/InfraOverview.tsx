@@ -1,4 +1,3 @@
-import { expectedChain, sailApiLabel } from "@/lib/wagmi-config";
 import type { BackendInfo } from "@/lib/hooks/useBackendStatus";
 import { StatusDot } from "@/components/ui/StatusDot";
 
@@ -40,27 +39,12 @@ const STACK_ITEMS = [
 ];
 
 export function InfraOverview({ backend }: InfraOverviewProps) {
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 border border-[#05058a]/10 bg-[#f5f5f0] px-4 py-3 text-xs text-[#05058a]/75">
-        <StatusDot
-          status={backend.status}
-          label={
-            backend.status === "online"
-              ? "backend online"
-              : backend.status === "offline"
-                ? "backend offline"
-                : "checking backend"
-          }
-        />
-        <span>Expected chain: {expectedChain.name}</span>
-        <span>Frontend API: {sailApiLabel}</span>
-        {backend.chainId ? <span>Backend chain ID: {backend.chainId}</span> : null}
-        {backend.axlBridgeUrl ? <span>AXL bridge: {backend.axlBridgeUrl}</span> : null}
-      </div>
+  const track = [...STACK_ITEMS, ...STACK_ITEMS];
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {STACK_ITEMS.map((item) => {
+  return (
+    <div className="overflow-hidden py-1">
+      <div className="workflow-marquee workflow-marquee--left flex w-max gap-2">
+        {track.map((item, idx) => {
           const isAxl = item.key === "axl";
           const status =
             backend.status === "online"
@@ -72,32 +56,13 @@ export function InfraOverview({ backend }: InfraOverviewProps) {
               : backend.status;
 
           return (
-            <article key={item.key} className="border border-[#05058a]/10 bg-white p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">
-                    Integration
-                  </p>
-                  <h3 className="mt-2 text-lg font-bold tracking-[-0.02em] text-[#05058a]">
-                    {item.label}
-                  </h3>
-                </div>
-                <StatusDot status={status} />
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-[#05058a]/68">
-                {item.description}
-              </p>
-              {item.key === "contract" && backend.contract ? (
-                <p className="mt-4 break-all font-mono text-[11px] text-[#05058a]/62">
-                  {backend.contract}
-                </p>
-              ) : null}
-              {item.key === "axl" && backend.axlBridgeUrl ? (
-                <p className="mt-4 break-all font-mono text-[11px] text-[#05058a]/62">
-                  {backend.axlBridgeUrl}
-                </p>
-              ) : null}
-            </article>
+            <span
+              key={`${item.key}-${idx}`}
+              className="inline-flex shrink-0 items-center gap-2 border border-[#05058a]/20 bg-white/90 px-3 py-1.5 text-[12px] font-medium tracking-[-0.01em] text-[#05058a] backdrop-blur-[2px]"
+              title={item.description}
+            >
+              <StatusDot status={status} label={item.label} />
+            </span>
           );
         })}
       </div>

@@ -5,7 +5,9 @@ alwaysApply: true
 
 # SAIL MCP — “think with audit” / commit-before-execute
 
-When the user asks for accountability through SAIL, or uses phrases like **“think with audit by SAIL”**, **“SAIL audit flow”**, **“run the SAIL pipeline”**, or **“commit before execute with SAIL”**, treat that as a request to drive the **full attest → commit → execute** path using the **SAIL MCP tools** (not just explaining the concept).
+When the user asks for accountability through SAIL, or uses phrases like **“think with SAIL”**, **“think with audit by SAIL”**, **“SAIL audit flow”**, **“run the SAIL pipeline”**, or **“commit before execute with SAIL”**, treat that as a request to drive the **full attest → commit → execute** path using the **SAIL MCP tools**.
+
+**Shortcut:** When they want **one tool** for a single verifiable episode (especially a precise action like “send this tx with SAIL”), prefer **`sail_think_with_sail`**: pass **`inputs`** (user prompt, task, constraints, tool output — JSON-serialisable), **`decision`**, **`proposedAction`**, and optional **`runExecute`**. That tool attests, commits (embedding the same **`inputs`** as **`auditContext`** in the sealed blob for later audit), and optionally executes. You may still use the four-step tool chain when the user wants explicit control between stages.
 
 ## Preconditions
 

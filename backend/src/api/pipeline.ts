@@ -80,6 +80,11 @@ export type CommitInput = {
   proposedAction: string;
   /** Optional sealed-inference attestation, embedded in the blob for ZK tier. */
   attestation?: string;
+  /**
+   * Optional verbatim audit payload (user prompt, tool traces, constraints) stored inside the
+   * encrypted blob so auditors can see what was attested, not only inputHash.
+   */
+  auditContext?: unknown;
 };
 
 export type CommitResult = {
@@ -99,6 +104,7 @@ export async function commit(input: CommitInput): Promise<CommitResult> {
     attestation: input.attestation,
     agentEns: input.agentEns,
     timestamp: Date.now(),
+    ...(input.auditContext !== undefined ? { auditContext: input.auditContext } : {}),
   };
 
   const plaintext = new TextEncoder().encode(JSON.stringify(blob));
@@ -185,6 +191,7 @@ export type AuditCommitmentResult = {
     attestation?: string;
     agentEns: string;
     timestamp: number;
+    auditContext?: unknown;
   };
   hashVerified: boolean;
   note?: string;

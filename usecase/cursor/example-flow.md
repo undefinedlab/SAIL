@@ -2,7 +2,7 @@
 
 This doc walks through an attest inputs → commit on-chain → clear the execute gate. The same tools work against **local stdio** (`sail`) or **remote Streamable HTTP** (`sail-production`).
 
-**Chained behavior in chat:** the project rule [`.cursor/rules/sail-mcp-audit-flow.mdc`](../../.cursor/rules/sail-mcp-audit-flow.mdc) tells the agent to run the full flow when you say things like **“think with audit by SAIL”** (after MCP is connected).
+**Chained behavior in chat:** the project rule [`.cursor/rules/sail-mcp-audit-flow.mdc`](../../.cursor/rules/sail-mcp-audit-flow.mdc) tells the agent to run the full flow when you say things like **“think with SAIL”** or **“think with audit by SAIL”** (after MCP is connected).
 
 ---
 
@@ -33,6 +33,17 @@ For a **Bearer** token (if you set `MCP_HTTP_TOKEN` on the server), add:
 ## 3. Example flow (happy path)
 
 Use **Agent** (or chat with MCP tools) and steer the model to call tools **in order**. Below is a concrete scenario: *“Record a decision before acting.”*
+
+### Shortcut — one tool (`sail_think_with_sail`)
+
+For a **single verifiable episode** (especially “do this one tx with SAIL”), call **`sail_think_with_sail`** with:
+
+- **`inputs`** — JSON-serialisable snapshot: `userPrompt`, task, constraints, tool outputs (this is both hashed for `inputHash` and stored as **`auditContext`** inside the sealed blob so auditors can see what led to the result).
+- **`decision`** — the model’s conclusion (“thought”).
+- **`proposedAction`** — calldata / tx description.
+- **`runExecute`** — optional; default false. Set true only after you intend to clear the execute gate immediately.
+
+Then use **`sail_audit_commitment`** with `commitmentHash` to verify plaintext (AES fallback) or inspect Lit metadata.
 
 ### Step 0 — Register agent (only if not already on-chain)
 

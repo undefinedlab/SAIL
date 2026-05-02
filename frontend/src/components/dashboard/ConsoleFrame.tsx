@@ -4,6 +4,8 @@ type ConsoleFrameProps = {
   description: string;
   children: React.ReactNode;
   aside?: React.ReactNode;
+  /** Plain header + content: no outer card, border, or tinted hero strip. */
+  variant?: "default" | "minimal";
 };
 
 export function ConsoleFrame({
@@ -12,7 +14,27 @@ export function ConsoleFrame({
   description,
   children,
   aside,
+  variant = "default",
 }: ConsoleFrameProps) {
+  if (variant === "minimal") {
+    return (
+      <section className="space-y-8">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-[#05058a]/60">
+            {eyebrow}
+          </p>
+          <h1 className="mt-3 max-w-4xl text-[clamp(34px,5vw,66px)] font-black leading-[0.92] tracking-[-0.04em] text-[#05058a]">
+            {title}
+          </h1>
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[#05058a]/72">
+            {description}
+          </p>
+        </div>
+        <div>{children}</div>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-6">
       <div className="overflow-hidden border border-[#05058a]/15 bg-white">

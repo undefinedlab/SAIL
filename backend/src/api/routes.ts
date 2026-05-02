@@ -242,7 +242,7 @@ api.get("/compute/ledger/providers", async (_req, res) => {
 
 api.post("/commit", async (req, res) => {
   try {
-    const { agentEns, inputHash, decision, proposedAction, attestation } = req.body ?? {};
+    const { agentEns, inputHash, decision, proposedAction, attestation, auditContext } = req.body ?? {};
     if (!agentEns || !inputHash || !decision || !proposedAction) {
       return res.status(400).json({ error: "agentEns, inputHash, decision, proposedAction required" });
     }
@@ -252,6 +252,7 @@ api.post("/commit", async (req, res) => {
       decision,
       proposedAction,
       attestation,
+      auditContext,
     });
     res.json({
       commitmentHash: result.commitmentHash,

@@ -16,6 +16,7 @@
  * Tools:
  *   sail_register        SAIL contract register + optional ENS subname/records (same as POST /api/register)
  *   sail_attest_inputs   Stage 01 — hash inputs before reasoning
+ *   sail_think_with_sail One-shot attest → commit (+ optional execute); embeds inputs in blob as auditContext
  *   sail_commit          Stage 03 — Lit encrypt → 0G upload → SAIL anchor
  *   sail_execute         Stage 04 — contract-gated execution
  *   sail_audit_commitment Fetch 0G blob + decrypt (AES fallback) or describe Lit blob
@@ -191,14 +192,21 @@ export function createSailMcpServer(): McpServer {
         .string()
         .optional()
         .describe("0G Compute sealed inference attestation (ZK tier only)"),
+      auditContext: z
+        .unknown()
+        .optional()
+        .describe(
+          "Optional JSON stored in the encrypted commitment blob for audit (user prompt, tool traces).",
+        ),
     },
-    async ({ agentEns, inputHash, decision, proposedAction, attestation }) => {
+    async ({ agentEns, inputHash, decision, proposedAction, attestation, auditContext }) => {
       const result = await pipeline.commit({
         agentEns,
         inputHash: inputHash as `0x${string}`,
         decision,
         proposedAction,
         attestation,
+        auditContext,
       });
       return {
         content: [
@@ -212,6 +220,74 @@ export function createSailMcpServer(): McpServer {
               etherscan: `https://sepolia.etherscan.io/tx/${result.txHash}`,
               note: "Commitment anchored on-chain. Call sail_execute with this commitmentHash to proceed.",
             }),
+          },
+        ],
+      };
+    },
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // One-shot — sail_think_with_sail (attest + commit + optional execute)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  mcp.tool(
+    "sail_think_with_sail",
+    "Single tool for a verifiable episode: hashes inputs, stores the same payload as auditContext inside the encrypted commitment blob (so auditors see prompt/context + decision + proposedAction), anchors on-chain, optionally clears execute. Use when the user says 'think with SAIL' or wants one precise gated action (e.g. send this tx after commit). Prefer runExecute:false until the calldata is reviewed.",
+    {
+      agentEns: z
+        .string()
+        .describe("Registered agent ENS (e.g. treasury.sail.eth)"),
+      inputs: z
+        .unknown()
+        .describe(
+          "Everything to bind and later audit: userPrompt, task, constraints, tool outputs, raw context (JSON-serialisable). Becomes inputHash and is copied into auditContext in the sealed blob.",
+        ),
+      decision: z.string().describe("Conclusion: what you decided and why (the 'thought')."),
+      proposedAction: z
+        .string()
+        .describe("Exact action: hex calldata, tx summary, or structured description."),
+      attestation: z.string().optional().describe("0G Compute sealed inference attestation if used."),
+      runExecute: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "If true, calls sail_execute immediately after commit. If false, run sail_execute manually after review.",
+        ),
+    },
+    async ({ agentEns, inputs, decision, proposedAction, attestation, runExecute = false }) => {
+      const attest = pipeline.attestInputs(inputs);
+      const commitResult = await pipeline.commit({
+        agentEns,
+        inputHash: attest.inputHash,
+        decision,
+        proposedAction,
+        attestation,
+        auditContext: inputs,
+      });
+      const out: Record<string, unknown> = {
+        inputHash: attest.inputHash,
+        attestedAt: attest.timestamp,
+        commitmentHash: commitResult.commitmentHash,
+        cid: commitResult.cid,
+        nonce: commitResult.nonce.toString(),
+        commitTxHash: commitResult.txHash,
+        commitEtherscan: `https://sepolia.etherscan.io/tx/${commitResult.txHash}`,
+        note: runExecute
+          ? "Committed; clearing execute gate…"
+          : "Committed with auditContext=input snapshot. Call sail_execute when ready, or use sail_audit_commitment to verify the blob.",
+      };
+      if (runExecute) {
+        const execResult = await pipeline.execute(agentEns, commitResult.commitmentHash);
+        out["executeTxHash"] = execResult.txHash;
+        out["executeEtherscan"] = `https://sepolia.etherscan.io/tx/${execResult.txHash}`;
+        out["note"] = "Attest + commit + execute complete for this episode.";
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(out, null, 2),
           },
         ],
       };

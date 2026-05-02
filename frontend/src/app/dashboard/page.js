@@ -5,7 +5,6 @@ import { BayerDitherImage } from "@/components/hero/BayerDitherImage";
 import { Navbar, SiteFooter } from "@/components/landing";
 import { ConsoleFrame } from "@/components/dashboard/ConsoleFrame";
 import { InfraOverview } from "@/components/dashboard/InfraOverview";
-import { ProtocolStages } from "@/components/dashboard/ProtocolStages";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
 
 const OPERATOR_VISUAL =
@@ -18,15 +17,10 @@ function DashboardSurface() {
 
   return (
     <ConsoleFrame
+      variant="minimal"
       eyebrow="Console"
-      title="Mission control for every SAIL surface"
-      description="This console is now the place to inspect infrastructure health, follow the six-stage protocol, and jump into the exact operator or auditor flow needed to test each subsystem."
-      aside={
-        <div className="space-y-2 text-xs text-[#05058a]/68">
-          <p>Backend, chain, and AXL health auto-refresh every 15 seconds.</p>
-          <p>Use Operator for commit-path testing and Auditor for reveal-path testing.</p>
-        </div>
-      }
+      title="Let's Sail together"
+      description="Open Operator for commits, identity, and mesh — or Auditor to verify anchored work and the audit path."
     >
       <div className="space-y-6">
         <div className="grid gap-4 md:grid-cols-2">
@@ -80,7 +74,6 @@ function DashboardSurface() {
         </div>
 
         <InfraOverview backend={backend} />
-        <ProtocolStages />
 
         <div className="grid gap-4 xl:grid-cols-3">
           {[
