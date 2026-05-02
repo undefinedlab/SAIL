@@ -2,7 +2,7 @@
 
 **Cryptographic accountability for AI agents — commit before you execute**
 
-SAIL is a trust infrastructure layer for AI agents. Before any agent can execute a consequential action, it must publicly anchor a hash of its decision on-chain. Any authorized auditor can later retrieve the encrypted decision, decrypt it with Lit Protocol, and verify it matches the on-chain anchor. If it doesn't — the agent is slashed.
+SAIL is a trust infrastructure layer for AI agents. Before any agent can execute a consequential action, it must publicly anchor a hash of its decision onchain. Any authorized auditor can later retrieve the encrypted decision, decrypt it using keys, and verify it matches the onchain anchor. If it doesn't the agent is slashed.
 
 > Register as `myagent.sail.eth`. Attest inputs. Commit your decision on-chain. Execute the gate. Get slashed if you lied.
 
@@ -56,7 +56,7 @@ An agent **must** publicly anchor a hash of its decision before it is allowed to
 | **Solidity + Foundry** | SAIL smart contract — register, commit, execute gate, slash |
 | **0G Storage** | Decentralized encrypted blob storage (Galileo testnet) |
 | **0G Compute** | Sealed inference TEE — Qwen 2.5-7B, cryptographic attestation |
-| **Lit Protocol** | Threshold key management — access conditions tied to `isAuthorized()` |
+| **Lit Protocol** | Threshold key management access conditions tied to `isAuthorized()` |
 | **AXL / Gensyn** | P2P encrypted mesh for agent-to-agent delegation and messaging |
 | **ENS** | Agent identity — `*.sail.eth` subnames with SAIL text records |
 | **Express + TypeScript** | Backend API + MCP server |
@@ -77,10 +77,10 @@ An agent **must** publicly anchor a hash of its decision before it is allowed to
 │                                                                │
 │  src/api/routes.ts         ← SAIL pipeline endpoints           │
 │  src/api/ens-routes.ts     ← ENS CRUD                          │
-│  src/api/axl-routes.ts     ← AXL mesh + delegation            │
+│  src/api/axl-routes.ts     ← AXL mesh + delegation             │
 │  src/lit/encrypt.ts        ← Lit encrypt + AES-256-GCM fallback│
-│  src/mcp/server.ts         ← 8 MCP tools                      │
-│  src/mcp/http-server.ts    ← Streamable HTTP /mcp             │
+│  src/mcp/server.ts         ← 8 MCP tools                       │
+│  src/mcp/http-server.ts    ← Streamable HTTP /mcp              │
 │  0g/storage.ts             ← Galileo upload/download           │
 │  0g/compute.ts             ← Sealed inference + retry          │
 │  ens/registry.ts           ← NameWrapper-aware subnames        │
@@ -92,10 +92,10 @@ An agent **must** publicly anchor a hash of its decision before it is allowed to
            ▼                  ▼                     ▼
   ┌────────────────┐ ┌──────────────────┐ ┌──────────────────┐
   │ Ethereum       │ │ 0G Galileo       │ │ AXL Node         │
-  │ Sepolia        │ │ Testnet          │ │ localhost:9002    │
+  │ Sepolia        │ │ Testnet          │ │ localhost:9002   │
   │                │ │                  │ │                  │
   │ SAIL contract  │ │ Storage upload   │ │ Gensyn P2P mesh  │
-  │ commit/execute │ │ Compute inference│ │ Built from source │
+  │ commit/execute │ │ Compute inference│ │ Built from source│
   │ slash/register │ │ TEE attestation  │ │ ed25519 identity │
   └────────┬───────┘ └──────────────────┘ └──────────────────┘
            │
@@ -117,7 +117,7 @@ Hash everything the agent receives: task, context, market data, user instruction
 ```
 inputHash = SHA256(inputs)
 ```
-This snapshot is tamper-proof. If the agent reasons differently from what it received, the auditor catches the mismatch.
+This snapshot is tamper proof. If the agent reasons differently from what it received, the auditor catches the mismatch.
 
 ### Stage 2 — Reason (optional, ZK tier)
 For ZK-tier agents, reasoning runs through **0G Compute** — a sealed inference network with TEE hardware. The inference provider returns a cryptographic attestation proving which model ran on which inputs.
@@ -143,7 +143,7 @@ Optionally deliver the result to another agent via the **AXL mesh** (Gensyn's P2
 Any address listed as auditor for the agent can:
 1. Fetch the encrypted blob from 0G Storage using the `cid`
 2. Decrypt via Lit Protocol (Lit nodes check `SAIL.isAuthorized(auditorAddr, ens)`)
-3. Hash the decrypted plaintext — compare against `commitmentHash` on-chain
+3. Hash the decrypted plaintext compare against `commitmentHash` onchain
 4. If they don't match → the agent lied → **slash**
 
 ---
@@ -152,11 +152,9 @@ Any address listed as auditor for the agent can:
 
 | Tier | Name | What it means |
 |------|------|---------------|
-| 0 | **Optimistic** | Commit-execute enforced on-chain. Decision encrypted. No proof of how reasoning happened. |
+| 0 | **Optimistic** | Commit-execute enforced onchain. Decision encrypted. No proof of how reasoning happened. |
 | 1 | **ZK** | Same as Optimistic + reasoning ran through 0G Compute's sealed inference TEE. Attestation in the blob proves which model ran. |
-| 2 | **TEE** | Reserved for hardware-attested agents running inside a trusted execution environment. |
-
-Start with Optimistic. Upgrade to ZK when you need to prove inference integrity.
+| 2 | **TEE** | Reserved for hardware attested agents running inside a trusted execution environment. |
 
 ---
 
@@ -193,10 +191,6 @@ SAIL exposes **8 tools via MCP** (Model Context Protocol). Any MCP-compatible fr
 | `sail_discover` | Discovery | Resolve another agent's ENS → capabilities + peer ID |
 | `sail_delegate` | Delegation | Send a task to a worker agent via AXL |
 | `sail_receive_messages` | Inbox | Poll AXL inbox for replies |
-
-**Two transports:**
-- **stdio** — `npm run mcp` (Claude Code, Cursor local)
-- **Streamable HTTP** — `localhost:3001/mcp` (Cursor remote, any HTTP client)
 
 ---
 
@@ -587,62 +581,6 @@ Slash is irreversible. The agent's `active` flag is set to false. No more commit
 
 ---
 
-## Key Design Decisions
-
-**Commit-before-execute is contract-enforced, not honor-system.**  
-`SAIL.execute()` reverts without a prior `commit()`. The gate cannot be bypassed.
-
-**ENS NameWrapper-aware.**  
-Modern ENS names are wrapped (registry owner = NameWrapper contract). SAIL checks `NameWrapper.ownerOf(namehash)` and uses `NameWrapper.getData()` so subnames appear in the ENS app with the Manager badge.
-
-**Lit Protocol + AES-256-GCM fallback.**  
-`encryptCommitmentBlob()` tries Lit with a 5-second timeout, falls back to AES-256-GCM automatically. The fallback key is stored in the 0G blob metadata so the pipeline always completes. When Lit nodes are reachable, threshold decryption replaces the fallback.
-
-**AXL binary built from source.**  
-No public binary releases for `gensyn-ai/axl`. The backend auto-clones the repo and runs `go build ./cmd/node/` on first start. Binary is cached at `.axl/repo/node`.
-
-**0G Compute ESM fixed.**  
-`@0gfoundation/0g-compute-ts-sdk` ESM build has missing exports. Fixed with `createRequire(import.meta.url)` to force CJS resolution.
-
-**publicnode.com RPC.**  
-Alchemy Sepolia RPC rejects transactions when a wallet has too many pending txs. `publicnode.com` has no such limit.
-
----
-
-## Known Limitations
-
-1. **Lit Protocol** — `datil-test` nodes currently unreachable. AES-256-GCM fallback is active. Full threshold decryption works once nodes are reachable — no pipeline changes needed.
-2. **TEE attestation** — testnet providers don't implement per-request signature storage. Verification returns `null` on testnet. Will work with production providers.
-3. **AXL single-node** — delegation to self works. Cross-operator delegation needs a second developer running their own node with `AXL_AUTO_START=true`.
-4. **0G Compute provider** — only provider `0xa48f01...` (Qwen 2.5-7B) works for text inference. Provider `0x4b2a94...` is an image model.
-
----
-
-## Frequently Asked Questions
-
-**Q: Does every AI action need to go through SAIL?**  
-No. SAIL is for consequential actions — financial, governance, cross-agent, or anything you want to audit. Read-only queries and exploratory reasoning don't need to be committed.
-
-**Q: Who can read the decision?**  
-Nobody until authorized. The blob is encrypted. Only addresses for which `SAIL.isAuthorized(addr, ens)` returns true can ask Lit Protocol to decrypt. By default that's the auditors set at registration.
-
-**Q: Can I change my auditors?**  
-Yes: `SAIL.updateAuditors(ens, newAuditors[])`. The operator wallet signs the transaction.
-
-**Q: What's the minimum stake?**  
-0.01 ETH. You can add more at any time with `SAIL.addStake(ens)`.
-
-**Q: Is the commitment hash the same as the blob content hash?**  
-`commitmentHash = keccak256(encrypted_blob_bytes)`. `inputHash = SHA256(raw_inputs)`. Auditors verify: decrypt blob → keccak(plaintext) == commitmentHash, and blob.inputHash == inputHash from on-chain.
-
-**Q: Does SAIL work on mainnet?**  
-The contract is on Ethereum Sepolia. The architecture is mainnet-ready — deploy the contract to mainnet, update the RPC URL, same code.
-
-**Q: What if the agent crashes after commit but before execute?**  
-The commitment is already on-chain. The agent can call `execute()` on restart with the same `commitmentHash`. The gate will clear.
-
----
-
 ## Partner Integrations
 
 SAIL is built on four protocol partners. Each has a dedicated integration guide:
@@ -653,88 +591,6 @@ SAIL is built on four protocol partners. Each has a dedicated integration guide:
 | **ENS** | Human-readable agent identity — `*.sail.eth` subnames carrying tier, auditors, and AXL peer ID | [docs/partners/ens.md](docs/partners/ens.md) |
 | **Gensyn / AXL** | Encrypted P2P mesh for agent-to-agent task delegation and result delivery | [docs/partners/gensyn.md](docs/partners/gensyn.md) |
 | **Lit Protocol** | Threshold encryption — access conditions tied to `SAIL.isAuthorized()` on-chain | [docs/partners/lit.md](docs/partners/lit.md) |
-
----
-
-### 0G — Quick Setup
-
-```env
-# backend/.env
-ZERO_G_RPC_URL=https://evmrpc-testnet.0g.ai
-ZERO_G_INDEXER_URL=https://indexer-storage-testnet-turbo.0g.ai
-ZERO_G_PRIVATE_KEY=0x...
-ZERO_G_COMPUTE_PROVIDER=0xa48f01287233509FD694a22Bf840225062E67836
-```
-
-```bash
-# Fund the 0G Compute ledger (one-time, minimum 3 OG tokens)
-curl -X POST http://localhost:3001/api/compute/setup-ledger \
-  -H "Content-Type: application/json" -d '{"amount": 3}'
-```
-
-→ Full guide: [docs/partners/0g.md](docs/partners/0g.md)
-
----
-
-### ENS — Quick Setup
-
-```env
-# backend/.env
-ENS_PARENT_NAME=sail.eth          # ENS name you own on Sepolia
-OPERATOR_PRIVATE_KEY=0x...        # Wallet that is Manager of that name
-ETH_SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
-```
-
-The operator wallet must be the Manager of `sail.eth` (or your own parent name) on Sepolia. Set this at [sepolia.app.ens.domains](https://sepolia.app.ens.domains).
-
-→ Full guide: [docs/partners/ens.md](docs/partners/ens.md)
-
----
-
-### Gensyn / AXL — Quick Setup
-
-```env
-# backend/.env
-AXL_AUTO_START=true               # Auto-clone, build, and start AXL on backend boot
-AXL_BRIDGE_URL=http://localhost:9002
-AXL_TCP_PORT=7000
-```
-
-**Prerequisites:**
-```bash
-brew install go    # Go 1.21+ required to build the AXL binary
-openssl version    # Pre-installed on macOS/Linux
-```
-
-On first `npm run dev`, the backend will clone `gensyn-ai/axl`, build the Go binary, generate an ed25519 key, and start the node. Takes 2–5 minutes on first boot; subsequent starts are instant.
-
-→ Full guide: [docs/partners/gensyn.md](docs/partners/gensyn.md)
-
----
-
-### Lit Protocol — Quick Setup
-
-```env
-# backend/.env
-LIT_CHIPOTLE_API_KEY=...          # From dashboard.chipotle.litprotocol.com
-LIT_CHIPOTLE_PKP_ID=...           # PKP wallet ID
-LIT_NETWORK=datil-test
-```
-
-```bash
-# Automated PKP + API key creation (requires account key from Chipotle dashboard)
-LIT_CHIPOTLE_ACCOUNT_KEY=<key> npm run setup-lit
-```
-
-> **Note:** If Chipotle credentials are not set, SAIL automatically uses AES-256-GCM fallback. The pipeline always completes — no manual fallback needed.
-
-→ Full guide: [docs/partners/lit.md](docs/partners/lit.md)
-
----
-
-## License
-
-[MIT](LICENSE)
 
 ---
 Built for ETHGlobal Open Agents 2026 🤍  
