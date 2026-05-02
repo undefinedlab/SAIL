@@ -196,7 +196,12 @@ export async function registerAgent(input: {
   auditors: string[];
   stakeEth?: string;
 }) {
-  return jsonRequest<{ txHash: `0x${string}`; ens: string; agent: unknown }>("/api/register", {
+  return jsonRequest<{
+    txHash: `0x${string}`;
+    ens: string;
+    agent: unknown;
+    ensSubname?: { txHashes: `0x${string}`[]; pendingRecords?: boolean } | null;
+  }>("/api/register", {
     method: "POST",
     body: JSON.stringify(input),
   });

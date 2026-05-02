@@ -160,7 +160,12 @@ export function SailOperatorPanel() {
   const [regAuditors, setRegAuditors] = useState("");
   const [regStake, setRegStake] = useState("0.01");
   const [regBusy, setRegBusy] = useState(false);
-  const [regResult, setRegResult] = useState<{ txHash: string; ens: string } | null>(null);
+  const [regResult, setRegResult] = useState<{
+    txHash: string;
+    ens: string;
+    ensSubname?: { txHashes: string[]; pendingRecords?: boolean };
+    ensError?: string;
+  } | null>(null);
   const [regError, setRegError] = useState<string | null>(null);
 
   const [pipeEns, setPipeEns] = useState("");
@@ -291,8 +296,8 @@ export function SailOperatorPanel() {
         auditors,
         stakeEth: regStake,
       });
-      setRegResult({ txHash: result.txHash, ens: result.ens });
-      setRegEns(result.ens);  // sync input to show the full name that was registered
+
+      setRegEns(result.ens);
       setPipeEns(result.ens);
       setMonEns(result.ens);
       setIdentityName(result.ens);
@@ -302,6 +307,13 @@ export function SailOperatorPanel() {
         setIdentityLabel(label);
         setIdentityParent(rest.join("."));
       }
+
+      // ENS subname creation is handled by the backend — use the result directly
+      setRegResult({
+        txHash: result.txHash,
+        ens: result.ens,
+        ensSubname: result.ensSubname ?? undefined,
+      });
     } catch (error) {
       setRegError(friendlyError((error as Error).message ?? String(error)));
     } finally {
@@ -692,7 +704,7 @@ export function SailOperatorPanel() {
               disabled={regBusy || backend.status !== "online"}
               className="rounded bg-[#05058a] px-5 py-2 text-sm text-white disabled:opacity-40"
             >
-              {regBusy ? "Registering…" : "Register agent"}
+              {regBusy ? "Registering… (contract + ENS subname)" : "Register agent"}
             </button>
 
             {regError ? (
@@ -701,11 +713,18 @@ export function SailOperatorPanel() {
               </p>
             ) : null}
             {regResult ? (
-              <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
+              <div className="space-y-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
                 <p className="font-medium text-emerald-800">✓ Agent registered: {regResult.ens}</p>
-                <p>
-                  Tx: <TxLink hash={regResult.txHash} />
-                </p>
+                <p>SAIL contract tx: <TxLink hash={regResult.txHash} /></p>
+                {regResult.ensSubname ? (
+                  <p className="text-emerald-700">
+                    ✓ ENS subname created
+                    {regResult.ensSubname.pendingRecords ? " (text records writing in background…)" : ""}
+                  </p>
+                ) : null}
+                {regResult.ensError ? (
+                  <p className="text-amber-700">⚠ ENS subname: {regResult.ensError}</p>
+                ) : null}
               </div>
             ) : null}
           </div>
