@@ -1,93 +1,119 @@
-# SAIL Frontend
+# 🖥️ Frontend
 
-Secure Agentic Intelligence Layer (SAIL) frontend built with Next.js.
+> **Next.js 14 dashboard — Port 3000**
 
-This app contains:
-- marketing site (`/`)
-- console path selector (`/dashboard`)
-- auditor dashboard (`/dashboard/auditor`)
-- operator dashboard placeholder (`/dashboard/operator`)
+Two dashboards: an **Operator** workspace for running the SAIL pipeline, managing agents, and controlling the AXL mesh; and an **Auditor** workspace for verifying commitments and triggering slashes.
 
-The product architecture and protocol details are defined in `docs/idea.md`. This README gives a practical summary for frontend contributors.
+---
 
-## Core Concept
+## Folder Structure
 
-SAIL is a cryptographic accountability layer for AI agents operating on-chain.
+```
+frontend/
+├── src/
+│   ├── app/
+│   │   ├── layout.js               # Root layout + providers
+│   │   ├── page.js                 # Landing page
+│   │   ├── wagmi.js                # Wagmi provider
+│   │   └── dashboard/
+│   │       ├── page.js             # Dashboard selector (Operator / Auditor)
+│   │       ├── operator/page.js    # Operator workspace
+│   │       └── auditor/page.js     # Auditor workspace
+│   │
+│   ├── components/
+│   │   ├── dashboard/
+│   │   │   ├── SailOperatorPanel.tsx   # Agent · Pipeline · Network tabs
+│   │   │   ├── SailAuditorPanel.tsx    # Lookup · Audit · Slash
+│   │   │   ├── ZeroGComputePanel.tsx   # 0G Compute provider + ledger panel
+│   │   │   ├── IntegrationStatusCards.tsx  # Live status indicators
+│   │   │   └── ConsoleFrame.tsx        # Terminal-style output frame
+│   │   ├── hero/                   # Landing page hero
+│   │   ├── landing/                # Landing page content
+│   │   ├── providers/              # Wagmi + React providers
+│   │   ├── ui/
+│   │   │   ├── StatusDot.tsx       # Online/offline dot
+│   │   │   └── TxLink.tsx          # Etherscan tx link
+│   │   └── wallet/                 # Wallet connect button
+│   │
+│   └── lib/
+│       ├── sail-api.ts             # All backend API calls (typed fetch wrappers)
+│       ├── sail-abi.ts             # SAIL contract ABI + type helpers
+│       ├── wagmi-config.ts         # Chain + transport config (Sepolia)
+│       └── hooks/
+│           └── useBackendStatus.ts # Polls /health every 5s
+│
+├── next.config.mjs                 # /api/* + /health proxy → backend
+├── package.json
+└── .env                            # Environment variables
+```
 
-For high-stakes actions, SAIL binds three facts:
-- what the agent received (inputs)
-- what the agent committed to (decision + proposed action)
-- what the agent executed (final action)
+---
 
-The chain is cryptographically linked, contract-enforced, and auditable by authorized parties.
+## Pages
 
-## Architecture Summary
+### `/dashboard/operator` — Three workspaces
 
-High-level protocol architecture (from `docs/idea.md`):
-- **Agent framework (MCP-compatible)** calls SAIL tools
-- **SAIL MCP server** exposes tools and routes commitments
-- **SAIL contract (EVM)** enforces commit-before-execute and registry/stake rules
-- **Lit Protocol** handles encryption keys and access conditions
-- **0G / Storacha** stores encrypted blobs (CID anchored on-chain)
-- **ENS / AXL / x402** support identity, communication, and conditional payment
+| Tab | Sub-tabs | What you can do |
+|-----|----------|-----------------|
+| **Agent** | Register · Monitor | Register agent on SAIL + ENS. Look up stake, tier, commitment count. |
+| **Pipeline** | — | Full SAIL pipeline: attest → 0G Compute reason → Lit encrypt → 0G upload → SAIL anchor → execute gate. |
+| **Network** | Identity · Mesh | ENS subname management, AXL peer ID. Send/receive AXL messages, discover agents, delegate tasks, poll results. |
 
-Frontend responsibilities:
-- explain protocol and pipeline clearly
-- present console entry points (operator vs auditor)
-- read on-chain contract state
-- interact with backend APIs for health/reveal/audit request flows
+### `/dashboard/auditor` — Three actions
 
-## Pipeline (UI Language)
+| Action | Description |
+|--------|-------------|
+| **Lookup** | Resolve ENS → stake, tier, auditors, commitment count, slash count |
+| **Audit** | Commitment hash → fetch blob from 0G → verify keccak vs on-chain anchor → view decision |
+| **Slash** | Call `SAIL.slash(ens)` → stake slashed to auditor |
 
-The frontend describes the six-stage enforced flow:
-1. Attest inputs
-2. Reason
-3. Commit
-4. Execute
-5. Deliver
-6. Audit (on request)
+---
 
-These labels should remain aligned with `docs/idea.md`.
-
-## Project Structure
-
-- `src/app/page.js` - landing page composition
-- `src/app/dashboard/page.js` - path selector
-- `src/app/dashboard/auditor/page.js` - auditor console route
-- `src/app/dashboard/operator/page.js` - operator route (currently simplified placeholder)
-- `src/components/landing/*` - landing sections and shared navbar/footer/cursor
-- `src/components/dashboard/*` - dashboard UIs
-- `src/lib/*` - ABI, config, helper utilities
-
-## Configuration
-
-Frontend uses `NEXT_PUBLIC_*` environment variables for chain/API config.
-
-Key variables used in current code:
-- `NEXT_PUBLIC_SAIL_CONTRACT_ADDRESS`
-- `NEXT_PUBLIC_SAIL_API_URL`
-- `NEXT_PUBLIC_SEPOLIA_RPC_URL`
-- `NEXT_PUBLIC_LOCAL_RPC_URL`
-- `NEXT_PUBLIC_USE_LOCAL_CHAIN`
-- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`
-- `NEXT_PUBLIC_LIT_NETWORK`
-
-## Development
-
-Install and run:
+## Setup
 
 ```bash
+cd frontend
 npm install
-npm run dev
+npm run dev     # http://localhost:3000
 ```
 
-Checks:
+### Environment Variables
 
-```bash
-npm run lint
-npm run build
+```env
+NEXT_PUBLIC_SAIL_CONTRACT_ADDRESS=0xaA99758ccD80E8CA9b2142950B04702ff9633990
+NEXT_PUBLIC_ENS_PARENT_NAME=sail.eth
+NEXT_PUBLIC_LIT_NETWORK=datil-test
+NEXT_PUBLIC_SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
+NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
+
+# Points to local backend (change for production)
+SAIL_API_PROXY_TARGET=http://localhost:3001
 ```
 
-## Source of Truth
+### API Proxy
 
-When copy or architecture details conflict, treat `docs/idea.md` as the canonical protocol reference and update UI/docs to match it.
+`next.config.mjs` rewrites `/api/*` and `/health` to the backend:
+
+```js
+const target = process.env.SAIL_API_PROXY_TARGET ?? "http://localhost:3001";
+// /api/:path* → target/api/:path*
+```
+
+---
+
+## Wallet Integration
+
+- **wagmi v2** + **viem** on Ethereum Sepolia (chain ID `11155111`)
+- MetaMask, WalletConnect, Coinbase Wallet
+- Only the Auditor slash is an on-chain tx from the frontend — all pipeline calls go through the backend operator wallet
+
+---
+
+## Tech Stack
+
+| Technology | Purpose |
+|------------|---------|
+| **Next.js 14** | App Router, SSR, API proxy rewrites |
+| **wagmi v2** | Wallet connection + chain management |
+| **viem** | Type-safe Ethereum interactions |
+| **TypeScript** | Type-safe implementation |
