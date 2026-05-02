@@ -1,0 +1,211 @@
+# 🟣 0G — Storage + Compute Integration
+
+> **0G Partner Prize Submission**
+
+SAIL uses **0G Storage** as the decentralized audit trail for every AI agent commitment, and **0G Compute** as the sealed inference backbone for ZK-tier agents. Together, they make AI agent decisions both immutable and provably honest.
+
+---
+
+## What We Built
+
+### 0G Storage — The Immutable Audit Trail
+
+Every time a SAIL agent commits a decision, the encrypted blob is uploaded to **0G Storage (Log mode)** on the Galileo testnet. The root hash returned by 0G becomes the `cid` anchored on-chain in `SAIL.commit()`.
+
+```
+Agent commits a decision:
+  encrypt(decision blob)
+    → upload to 0G Storage (Log mode)
+      → root_hash = Merkle root of the blob
+        → SAIL.commit(ens, keccak256(blob), inputHash, root_hash)
+
+Later, any auditor:
+  fetch blob from 0G using root_hash
+    → decrypt
+      → keccak256(plaintext) must equal commitmentHash on-chain
+```
+
+**Tamper-evident by content-addressing** — any byte modification changes the Merkle root hash and invalidates the on-chain anchor. The SAIL contract is the source of truth; 0G Storage is the evidence vault.
+
+### 0G Compute — Sealed Inference for ZK-Tier Agents
+
+ZK-tier agents (`sail_tier = zk`) route their reasoning through **0G Compute's sealed inference TEE**. The network returns a cryptographic attestation proving:
+- Which model ran (e.g. Qwen 2.5-7B at provider `0xa48f01...`)
+- Which inputs were used
+- That the computation ran inside a trusted execution environment
+
+The attestation is embedded in the SAIL commitment blob, so auditors can verify not just _what_ the agent decided, but _how_ it reasoned.
+
+---
+
+## Architecture
+
+### Source Files
+
+| File | Purpose |
+|------|---------|
+| `backend/0g/storage.ts` | Upload/download blobs via 0G Indexer (Log mode, Galileo testnet) |
+| `backend/0g/compute.ts` | Sealed inference: ledger setup, provider discovery, `runSealedInference()` |
+
+### Storage Pipeline
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    SAIL Backend                           │
+│                                                          │
+│  1. encryptCommitmentBlob(decision)                      │
+│       → Lit / AES-256-GCM ciphertext                     │
+│                                                          │
+│  2. uploadBlob(ciphertext)                               │
+│       → ZgFile.fromFilePath()                            │
+│       → ZgFile.merkleTree() → rootHash                  │
+│       → indexer.upload(file, rpcUrl, signer, TX_OPTS)    │
+│       → returns rootHash (this becomes the CID)          │
+│                                                          │
+│  3. SAIL.commit(ens, keccak256(blob), inputHash, rootHash)│
+│       → on-chain anchor, immutable                       │
+└──────────────────────────────────────────────────────────┘
+
+Auditor retrieval:
+  indexer.download(rootHash, filePath)
+    → decrypt
+      → verify keccak256(plaintext) == commitmentHash
+```
+
+### Compute Pipeline (ZK Tier)
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  broker = createZGComputeNetworkBroker(signer)           │
+│                                                          │
+│  1. broker.ledger.addLedger(3)   ← one-time setup       │
+│  2. broker.inference.listService()  ← browse providers  │
+│  3. broker.inference.acknowledgeProviderSigner(provider) │
+│  4. broker.inference.startAutoFunding(provider)          │
+│  5. fetch(endpoint + /chat/completions, headers)         │
+│       → response + chatId                                │
+│  6. broker.inference.processResponse(provider, chatId)   │
+│       → verified: true | false | null (TEE attestation)  │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 0G API Usage
+
+### Storage
+
+```typescript
+import { uploadBlob, downloadBlob } from "./0g/storage.js";
+
+// Upload encrypted commitment blob
+const rootHash = await uploadBlob(encryptedBytes, {
+  finalityRequired: false,  // testnet: don't wait for finality
+  timeoutMs: 3 * 60 * 1000 // 3-minute upload timeout
+});
+// rootHash → anchored on SAIL contract as cid
+
+// Auditor retrieval
+const bytes = await downloadBlob(rootHash);
+```
+
+### Compute
+
+```typescript
+import { setupLedger, runSealedInference, listInferenceProviders } from "./0g/compute.js";
+
+// One-time setup (run once per operator wallet)
+await setupLedger(3); // 3 OG tokens minimum
+
+// Browse available models
+const providers = await listInferenceProviders();
+// [{ provider, model, url, inputPrice, outputPrice, verifiability, teeSignerAcknowledged }]
+
+// Run sealed inference
+const result = await runSealedInference(
+  "Should we rebalance this treasury?",
+  "You are a treasury management AI agent."
+);
+// result.output      → model response
+// result.verified    → true | false | null (TEE attestation status)
+// result.attestation → JSON blob embedded in SAIL commitment
+// result.model       → "Qwen2.5-7B-Instruct-Turbo" (or similar)
+```
+
+---
+
+## Deployed Configuration
+
+| Parameter | Value |
+|-----------|-------|
+| 0G RPC | `https://evmrpc-testnet.0g.ai` |
+| 0G Storage Indexer | `https://indexer-storage-testnet-turbo.0g.ai` |
+| 0G Compute Provider | `0xa48f01287233509FD694a22Bf840225062E67836` (Qwen 2.5-7B) |
+| Ledger balance | 3.0 OG (funded) |
+| Gas overrides | `gasPrice: 25 gwei`, `gasLimit: 1,000,000` |
+| Upload timeout | 3 minutes |
+
+---
+
+## Setup
+
+### Environment Variables
+
+```env
+# 0G Storage + Compute (add to backend/.env)
+ZERO_G_RPC_URL=https://evmrpc-testnet.0g.ai
+ZERO_G_INDEXER_URL=https://indexer-storage-testnet-turbo.0g.ai
+ZERO_G_PRIVATE_KEY=0x...          # Same wallet used for SAIL txs
+ZERO_G_COMPUTE_PROVIDER=0xa48f01287233509FD694a22Bf840225062E67836
+```
+
+### One-Time Ledger Setup
+
+```bash
+# Fund the 0G Compute ledger (run once)
+curl -X POST http://localhost:3001/api/compute/setup-ledger \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 3}'
+# { "action": "created", "amount": 3 }
+
+# Check ledger balance
+curl http://localhost:3001/api/compute/ledger
+# { "totalBalance": "3000000000000000000", "availableBalance": "..." }
+
+# Browse available providers
+curl http://localhost:3001/api/compute/providers
+```
+
+Or run the setup script directly:
+```bash
+cd backend
+npm run setup-compute
+```
+
+### Verify Storage Works
+
+```bash
+# Run the storage smoke test
+cd backend
+npm run smoke
+# Look for: ✅ 0G Storage upload ok — root hash: 0x...
+```
+
+---
+
+## Known Testnet Limitations
+
+1. **TEE attestation** — testnet providers don't store per-request TEE signatures. `processResponse()` returns `null` (not `false`). This is a testnet limitation; production providers implement full signature storage.
+2. **Provider availability** — if `ZERO_G_COMPUTE_PROVIDER` fails, `runSealedInference()` auto-picks from all live providers on the network.
+3. **Upload gas** — hardcoded `gasPrice: 25 gwei` ensures testnet tx inclusion. Adjust for mainnet.
+
+---
+
+## Tech Stack
+
+| Technology | Purpose |
+|------------|---------|
+| `@0gfoundation/0g-storage-ts-sdk` | Merkle tree, ZgFile, Indexer upload/download |
+| `@0gfoundation/0g-compute-ts-sdk` | Broker, ledger, inference, auto-funding |
+| `ethers.js v6` | Signer for 0G transactions |
+| `createRequire` (CJS shim) | Fixes broken ESM exports in compute SDK |
