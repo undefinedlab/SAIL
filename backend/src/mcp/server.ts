@@ -36,6 +36,7 @@ import * as ens from "../../ens/registry.js";
 import * as sailContract from "../contract/sail.js";
 import { SAIL_ADDRESS } from "../contract/sail.js";
 import { registerEnsSubnameForAgentIfApplicable } from "../api/register-agent-shared.js";
+import { env } from "../config/env.js";
 
 export function createSailMcpServer(): McpServer {
   const mcp = new McpServer({
@@ -300,8 +301,7 @@ export function createSailMcpServer(): McpServer {
               text: JSON.stringify({
                 error:
                   "AXL node not reachable. Ensure the AXL binary is running.",
-                axlBridgeUrl:
-                  process.env["AXL_BRIDGE_URL"] ?? "http://localhost:9002",
+                axlBridgeUrl: env.axl.bridgeUrl,
               }),
             },
           ],

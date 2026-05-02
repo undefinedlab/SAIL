@@ -5,6 +5,9 @@
   "description": "SAIL backend — 0G Storage, 0G Compute, Lit Protocol, and SAIL contract integration.",
   "main": "dist/src/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

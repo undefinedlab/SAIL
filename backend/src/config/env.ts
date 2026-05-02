@@ -25,7 +25,11 @@ export const env = {
   server: {
     port: asInt("PORT", 3001),
     host: optional("HOST", "0.0.0.0"),
-    corsOrigin: optional("CORS_ORIGIN", "http://localhost:3000"),
+    /** Comma-separated browser origins allowed by CORS. Includes local dev + deployed API host. */
+    corsOrigin: optional(
+      "CORS_ORIGIN",
+      "http://localhost:3000,http://127.0.0.1:3000,https://sail-production-50ff.up.railway.app",
+    ),
   },
   sail: {
     contractAddress: required("SAIL_CONTRACT_ADDRESS"),
@@ -42,9 +46,16 @@ export const env = {
   },
   lit: {
     network: optional("LIT_NETWORK", "datil-test"),
+    /** Lit Chipotle usage API key (optional — AES fallback when unset). */
+    chipotleApiKey: optional("LIT_CHIPOTLE_API_KEY", ""),
+    /** Lit Chipotle PKP / wallet id for encrypt-decrypt (optional). */
+    chipotlePkpId: optional("LIT_CHIPOTLE_PKP_ID", ""),
   },
   axl: {
-    /** URL of the local AXL HTTP bridge. Defaults to the AXL standard port. */
+    /**
+     * AXL HTTP bridge. Local default is the standard port; on Railway set a reachable URL
+     * (public bridge or sidecar), not localhost.
+     */
     bridgeUrl: optional("AXL_BRIDGE_URL", "http://localhost:9002"),
     /**
      * Auto-build and run the AXL node on boot (needs Go + git + network). On PaaS (e.g. Railway)
@@ -89,7 +100,9 @@ export function corsOriginOption(): boolean | string | string[] {
     .split(",")
     .map((s) => s.trim().replace(/\/+$/, ""))
     .filter(Boolean);
-  if (parts.length === 0) return "http://localhost:3000";
+  if (parts.length === 0) {
+    return ["http://localhost:3000", "https://sail-production-50ff.up.railway.app"];
+  }
   if (parts.length === 1) return parts[0]!;
   return parts;
 }

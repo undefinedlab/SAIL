@@ -78,3 +78,5 @@ main().catch((e) => {
   console.error("❌", e.message);
   process.exit(1);
 });
+
+export {};
