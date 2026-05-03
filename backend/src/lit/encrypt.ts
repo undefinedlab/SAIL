@@ -26,52 +26,56 @@ async function main({ pkpId, message }) {
 }
 `;
 
-// Lit Action that decrypts — enforces SAIL.isAuthorized() before releasing plaintext
+// Lit Action that decrypts — authorization is pre-checked by the backend via viem before this runs.
+// Lit.Actions.callContract is NOT used here because it hangs in Chipotle v3 (unsupported primitive).
 const DECRYPT_ACTION = `
-async function main({ pkpId, ciphertext, agentEns, auditorAddress, contractAddress }) {
-  if (agentEns && auditorAddress && contractAddress) {
-    const isAuth = await Lit.Actions.callContract({
-      chain: "sepolia",
-      contractAddress,
-      abi: [{
-        name: "isAuthorized",
-        type: "function",
-        stateMutability: "view",
-        inputs: [{ name: "auditor", type: "address" }, { name: "ens", type: "string" }],
-        outputs: [{ name: "", type: "bool" }]
-      }],
-      functionName: "isAuthorized",
-      args: [auditorAddress, agentEns]
-    });
-    if (!isAuth) {
-      Lit.Actions.setResponse({ response: JSON.stringify({ error: "Not authorized" }) });
-      return;
-    }
-  }
+async function main({ pkpId, ciphertext }) {
   const plaintext = await Lit.Actions.Decrypt({ pkpId, ciphertext });
   Lit.Actions.setResponse({ response: JSON.stringify({ plaintext }) });
 }
 `;
 
+const CHIPOTLE_TIMEOUT_MS = 30_000;
+
 async function chipotleAction(
   code: string,
   jsParams: Record<string, unknown>,
 ): Promise<unknown> {
-  const res = await fetch(`${CHIPOTLE_BASE}/lit_action`, {
-    method: "POST",
-    headers: {
-      "X-Api-Key": env.lit.chipotleApiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ code, js_params: jsParams }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CHIPOTLE_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${CHIPOTLE_BASE}/lit_action`, {
+      method: "POST",
+      headers: {
+        "X-Api-Key": env.lit.chipotleApiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ code, js_params: jsParams }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Chipotle API ${res.status}: ${body}`);
   }
 
-  const data = await res.json() as { response: unknown; logs?: string };
+  const data = await res.json() as { response: unknown; logs?: string; has_error?: boolean };
+
+  // Surface Chipotle-level errors before trying to parse response
+  if (data.has_error) {
+    const errMsg = typeof data.response === "string" ? data.response : (data.logs ?? JSON.stringify(data.response));
+    throw new Error(`Chipotle action error: ${errMsg}`);
+  }
+
+  if (data.response === null || data.response === undefined) {
+    throw new Error(`Chipotle action returned empty response. logs: ${data.logs ?? ""}`);
+  }
+
   // response may be a pre-parsed object or a JSON string depending on Chipotle version
   if (typeof data.response === "string") {
     try { return JSON.parse(data.response); } catch { return data.response; }
@@ -90,7 +94,9 @@ export type EncryptedBlob = {
   ciphertext: string;
   dataToEncryptHash: string;
   accessConditions: SailAccessConditions;
-  /** Present when Chipotle is unavailable — used by AES fallback decrypt */
+  /** AES-256-GCM ciphertext of the plaintext — always present for fallback audit decrypt */
+  fallbackCiphertext?: string;
+  /** AES key+IV hex — paired with fallbackCiphertext, not ciphertext */
   fallbackKey?: string;
   /** "chipotle" or "aes-fallback" */
   encryptionMethod?: string;
@@ -140,25 +146,24 @@ export async function encryptCommitmentBlob(
   const accessConditions = sailAccessConditions(agentEns);
   const dataToEncryptHash = Buffer.from(plaintext).toString("hex").slice(0, 64);
 
-  // Always generate an AES fallback key — stored alongside Chipotle ciphertext so
-  // audit can succeed even if the Chipotle action CID is rotated / 403'd.
-  const { ciphertext: aesCiphertext, fallbackKey } = aesEncrypt(plaintext);
+  // Always generate AES ciphertext — stored as fallback so audit works even if Chipotle decrypt is blocked.
+  const { ciphertext: fallbackCiphertext, fallbackKey } = aesEncrypt(plaintext);
 
   // Try Chipotle if credentials are set
   if (env.lit.chipotleApiKey && env.lit.chipotlePkpId) {
     try {
       const ciphertext = await chipotleEncrypt(plaintext);
-      console.log("[Lit] Chipotle encryption succeeded (AES fallbackKey also stored for audit reliability)");
-      return { ciphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "chipotle" };
+      console.log("[Lit] Chipotle encryption succeeded");
+      // Store Chipotle ciphertext as primary + AES as fallback (separate fields)
+      return { ciphertext, dataToEncryptHash, accessConditions, fallbackCiphertext, fallbackKey, encryptionMethod: "chipotle" };
     } catch (err) {
-      console.warn("[Lit] Chipotle encryption failed, using AES fallback:", (err as Error).message);
+      console.warn("[Lit] Chipotle encryption failed, using AES:", (err as Error).message);
     }
   } else {
-    console.warn("[Lit] Chipotle credentials not set — using AES fallback");
+    console.warn("[Lit] Chipotle credentials not set — using AES");
   }
 
-  console.warn("[Lit] AES fallback used");
-  return { ciphertext: aesCiphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "aes-fallback" };
+  return { ciphertext: fallbackCiphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "aes-fallback" };
 }
 
 /**
@@ -166,19 +171,18 @@ export async function encryptCommitmentBlob(
  */
 export async function chipotleDecrypt(
   ciphertext: string,
-  agentEns: string,
-  auditorAddress?: string,
+  _agentEns: string,
+  _auditorAddress?: string,
 ): Promise<Uint8Array> {
   if (!env.lit.chipotleApiKey || !env.lit.chipotlePkpId) {
     throw new Error("Chipotle credentials not configured");
   }
 
+  // Authorization (isAuthorized) is checked by the caller (auditCommitment) via viem before
+  // this function is called. callContract inside a Lit Action hangs in Chipotle v3.
   const result = await chipotleAction(DECRYPT_ACTION, {
     pkpId: env.lit.chipotlePkpId,
     ciphertext,
-    agentEns,
-    auditorAddress: auditorAddress ?? "",
-    contractAddress: env.sail.contractAddress,
   }) as { plaintext?: string; error?: string };
 
   if (result.error) throw new Error(`Chipotle decrypt denied: ${result.error}`);

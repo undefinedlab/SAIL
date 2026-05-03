@@ -126,6 +126,7 @@ export async function commit(input: CommitInput): Promise<CommitResult> {
     encryptionMethod: encrypted.encryptionMethod ?? "aes-fallback",
   };
   if (encrypted.fallbackKey) wire["fallbackKey"] = encrypted.fallbackKey;
+  if (encrypted.fallbackCiphertext) wire["fallbackCiphertext"] = encrypted.fallbackCiphertext;
   const wireBlob = new TextEncoder().encode(JSON.stringify(wire));
   const cid = await storage.uploadBlob(wireBlob);
 
@@ -161,8 +162,9 @@ export type EncryptedSealedBlob = {
   ciphertext: string;
   dataToEncryptHash: string;
   accessConditions: { agentEns?: string; contractAddress?: string } | unknown;
-  /** Present for AES fallback blobs — allows server-side audit decrypt (demo path). */
   fallbackKey?: string;
+  /** AES ciphertext paired with fallbackKey — separate from Chipotle ciphertext */
+  fallbackCiphertext?: string;
   encryptionMethod?: string;
 };
 
@@ -251,11 +253,6 @@ export async function auditCommitment(
     };
   }
 
-  if (sealed.fallbackKey && sealed.ciphertext) {
-    const plainBytes = decryptAesFallbackBlob(sealed.ciphertext, sealed.fallbackKey);
-    return finalizeVerifiedPlaintext(plainBytes, "aes-fallback");
-  }
-
   const ac = sealed.accessConditions as { agentEns?: string } | undefined;
   const agentEns = ac?.agentEns?.trim();
   if (
@@ -264,6 +261,18 @@ export async function auditCommitment(
     env.lit.chipotlePkpId &&
     agentEns
   ) {
+    // Authorization pre-check via viem (callContract inside Lit Actions hangs in Chipotle v3).
+    if (options?.auditorAddress) {
+      const authorized = await contract.isAuthorized(options.auditorAddress, agentEns).catch(() => false);
+      if (!authorized) {
+        return {
+          ...base,
+          decryptMode: "none",
+          hashVerified: false,
+          note: `Auditor ${options.auditorAddress} is not authorized for ${agentEns} (SAIL.isAuthorized returned false).`,
+        };
+      }
+    }
     try {
       const plainBytes = await chipotleDecrypt(
         sealed.ciphertext,
@@ -272,12 +281,16 @@ export async function auditCommitment(
       );
       return finalizeVerifiedPlaintext(plainBytes, "chipotle");
     } catch (err) {
-      return {
-        ...base,
-        decryptMode: "lit-required",
-        note: `Chipotle decrypt failed (${(err as Error).message}). Configure LIT_* or decrypt as an authorized auditor in a Lit-capable client.`,
-      };
+      // Chipotle failed — fall through to AES fallback if the blob has one.
+      console.warn(`[Audit] Chipotle decrypt failed: ${(err as Error).message}. Trying AES fallback…`);
     }
+  }
+
+  // AES fallback — use fallbackCiphertext (AES) not ciphertext (Chipotle)
+  const aesCipher = sealed.fallbackCiphertext ?? (sealed.encryptionMethod === "aes-fallback" ? sealed.ciphertext : undefined);
+  if (sealed.fallbackKey && aesCipher) {
+    const plainBytes = decryptAesFallbackBlob(aesCipher, sealed.fallbackKey);
+    return finalizeVerifiedPlaintext(plainBytes, "aes-fallback");
   }
 
   if (sealed.ciphertext && (!env.lit.chipotleApiKey || !env.lit.chipotlePkpId)) {

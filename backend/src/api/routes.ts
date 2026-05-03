@@ -307,9 +307,19 @@ api.post("/execute", async (req, res) => {
     if (!agentEns || !commitmentHash) {
       return res.status(400).json({ error: "agentEns, commitmentHash required" });
     }
-    const result = await pipeline.execute(agentEns, commitmentHash as Hex);
+    // Validate: bytes32 must be exactly 0x + 64 hex chars (32 bytes).
+    // Viem will throw SizeExceedsBytesError if this is wrong, so catch it here first.
+    const hash = String(commitmentHash).trim();
+    if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) {
+      const hexLen = hash.startsWith("0x") ? hash.length - 2 : hash.length;
+      return res.status(400).json({
+        error: `commitmentHash must be 0x + 64 hex chars (32 bytes). Got ${hexLen} hex chars (${hexLen / 2} bytes).`,
+      });
+    }
+    const result = await pipeline.execute(agentEns, hash as Hex);
     res.json(result);
   } catch (err) {
+    console.error("[execute] error:", (err as Error).message ?? err);
     res.status(500).json({ error: contractError(err) });
   }
 });
