@@ -1,10 +1,8 @@
 # SAIL
 
-**Cryptographic accountability for AI agents — commit before you execute**
+**Cryptographic accountability for any AI agent**
 
-SAIL is a trust infrastructure layer for AI agents. Before any agent can execute a consequential action, it must publicly anchor a hash of its decision onchain. Any authorized auditor can later retrieve the encrypted decision, decrypt it using keys, and verify it matches the onchain anchor. If it doesn't the agent is slashed.
-
-> Register as `myagent.sail.eth`. Attest inputs. Commit your decision onchain. Execute the gate. Get slashed if you lied.
+SAIL is a cryptographic accountability layer for AI agents operating on-chain. For any actions, and any agents, it produces an on-chain receipt that binds what the agent received, what it committed to, and what it executed.
 
 ---
 
