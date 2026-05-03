@@ -630,6 +630,11 @@ SAIL is built on four protocol partners. Each has a dedicated integration guide:
 | **Lit Protocol** | Threshold encryption — access conditions tied to `SAIL.isAuthorized()` onchain | [docs/partners/lit.md](docs/partners/lit.md) |
 
 ---
-                    Built for ETHGlobal Open Agents 2026 🤍  
-                    
-Cryptographic accountability for AI agents because trust without proof is just hope.
+
+<div align="center">
+
+Built for ETHGlobal Open Agents 2026 🤍
+
+*Cryptographic accountability for AI agents — because trust without proof is just hope.*
+
+</div>
