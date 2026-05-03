@@ -2,7 +2,7 @@
 
 > **Lit Protocol Partner Prize Submission**
 
-SAIL uses **Lit Protocol Chipotle** as the encryption layer for AI agent commitment blobs. The access condition is tied directly to `SAIL.isAuthorized()` onchain — Lit nodes check the SAIL contract before releasing the decryption key. This means only addresses the agent trusts as auditors can ever read a commitment.
+SAIL uses **Lit Protocol Chipotle** as the encryption layer for AI agent commitment blobs. The access condition is tied directly to `SAIL.isAuthorized()` onchain Lit nodes check the SAIL contract before releasing the decryption key. This means only addresses the agent trusts as auditors can ever read a commitment.
 
 ---
 
@@ -18,7 +18,7 @@ What’s needed is encryption where **the decryption condition is enforced by a 
 
 With **Lit Protocol Chipotle**:
 - The decision blob is encrypted by a **PKP (Programmable Key Pair)** — a key that lives inside Lit’s TEE and is never exposed to anyone
-- Decryption runs inside a **Lit Action** — JavaScript executing in a hardware-isolated enclave
+- Decryption runs inside a **Lit Action** JavaScript executing in a hardware isolated enclave
 - Before decrypting, the Lit Action calls `SAIL.isAuthorized(auditorAddress, agentEns)` **onchain** — the SAIL contract is the gatekeeper, not Lit
 - If the auditor is not in the SAIL contract’s auditor list, Lit returns `{ error: "Not authorized" }` and the plaintext never leaves the TEE
 - The agent operator cannot bypass this — even with the PKP ID, they cannot decrypt without passing the onchain authorization check
