@@ -339,6 +339,37 @@ api.get("/agent-tasks/open", (_req, res) => {
   }
 });
 
+api.get("/agent-tasks/posted/:ens", (req, res) => {
+  try {
+    const ens = req.params.ens?.trim();
+    if (!ens) {
+      return res.status(400).json({ error: "ens required" });
+    }
+    res.json(jsonSafe({ tasks: sailTaskBoard.listTasksForPoster(ens) }));
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+api.post("/agent-tasks", async (req, res) => {
+  try {
+    const { posterAgentEns, instruction, title, inputs } = req.body ?? {};
+    if (!posterAgentEns || !instruction) {
+      return res.status(400).json({ error: "posterAgentEns and instruction required" });
+    }
+    const task = await sailTaskBoard.createOpenTask({
+      posterAgentEns,
+      instruction,
+      title,
+      inputs,
+    });
+    res.json(jsonSafe({ task }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: msg });
+  }
+});
+
 api.get("/agent-tasks/:id", (req, res) => {
   try {
     const id = req.params.id?.trim();

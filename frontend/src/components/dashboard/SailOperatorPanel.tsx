@@ -18,18 +18,9 @@ import {
   registerAgent,
   registerEnsSubname,
   sendAxlMessage,
-  discoverAgent,
-  delegateTask,
-  getDelegations,
-  getProcessedTasks,
-  startTaskRouter,
-  stopTaskRouter,
   type CommitResponse,
   type ComputeProvider,
   type LedgerInfo,
-  type DiscoveredAgent,
-  type DelegationRecord,
-  type ProcessedTask,
 } from "@/lib/sail-api";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
 import { expectedChain, sailApiLabel } from "@/lib/wagmi-config";
@@ -85,8 +76,8 @@ function augmentRpcError(stage: string, raw: string): string {
   return out;
 }
 
-/** Top-level workspaces in flow order: register → pipeline → manage → reveal → mesh. */
-type PrimaryWorkspace = "register" | "pipeline" | "manage" | "reveal" | "mesh";
+/** Top-level workspaces in flow order: register → pipeline → manage → reveal (mesh → Agent path). */
+type PrimaryWorkspace = "register" | "pipeline" | "manage" | "reveal";
 
 type AxlInboxMessage = {
   from: string;
@@ -164,13 +155,6 @@ type PipelineResult = {
   reasoning?: { output: string; model: string; attestation?: string; verified?: boolean | null; providerAddress?: string };
   commit?: CommitResponse;
   executeTxHash?: string;
-};
-
-type AxlTopology = {
-  online: boolean;
-  peerId?: string;
-  address?: string;
-  peers?: Array<{ peerId: string; address: string }>;
 };
 
 const PIPELINE_EXAMPLES = [
@@ -265,23 +249,6 @@ export function SailOperatorPanel() {
     pendingRecords?: boolean;
   } | null>(null);
 
-  const [meshTopology, setMeshTopology] = useState<AxlTopology | null>(null);
-  const [meshStatusError, setMeshStatusError] = useState<string | null>(null);
-  const [meshStatusBusy, setMeshStatusBusy] = useState(false);
-  const [meshSendTo, setMeshSendTo] = useState("");
-  const [meshTopic, setMeshTopic] = useState("sail.test");
-  const [meshMessage, setMeshMessage] = useState(() =>
-    JSON.stringify({ type: "ping", at: "replace-me", note: "SAIL operator console" }, null, 2),
-  );
-  const [meshSendBusy, setMeshSendBusy] = useState(false);
-  const [meshSendError, setMeshSendError] = useState<string | null>(null);
-  const [meshSendResult, setMeshSendResult] = useState<string | null>(null);
-  const [meshInboxBusy, setMeshInboxBusy] = useState(false);
-  const [meshInboxError, setMeshInboxError] = useState<string | null>(null);
-  const [meshInbox, setMeshInbox] = useState<
-    Array<{ from: string; message: string; topic?: string; timestamp: number }>
-  >([]);
-
   const [revealInbox, setRevealInbox] = useState<AxlInboxMessage[]>([]);
   const [revealInboxBusy, setRevealInboxBusy] = useState(false);
   const [revealInboxError, setRevealInboxError] = useState<string | null>(null);
@@ -296,22 +263,6 @@ export function SailOperatorPanel() {
   const [manualTrackPeer, setManualTrackPeer] = useState("");
   const [revealLastPollAt, setRevealLastPollAt] = useState<number | null>(null);
   const [recvPollStats, setRecvPollStats] = useState<RecvPollStats | null>(null);
-
-  // --- Agent-to-agent communication state ---
-  const [discoverEns, setDiscoverEns] = useState("");
-  const [discoveredAgent, setDiscoveredAgent] = useState<DiscoveredAgent | null>(null);
-  const [discoverBusy, setDiscoverBusy] = useState(false);
-  const [discoverError, setDiscoverError] = useState<string | null>(null);
-
-  const [delegateWorker, setDelegateWorker] = useState("");
-  const [delegateTask_, setDelegateTask_] = useState("");
-  const [delegateAgentEns, setDelegateAgentEns] = useState("");
-  const [delegateBusy, setDelegateBusy] = useState(false);
-  const [delegateError, setDelegateError] = useState<string | null>(null);
-  const [delegateResult, setDelegateResult] = useState<DelegationRecord | null>(null);
-
-  const [delegationList, setDelegationList] = useState<DelegationRecord[]>([]);
-  const [processedTaskList, setProcessedTaskList] = useState<ProcessedTask[]>([]);
 
   useEffect(() => {
     if (backend.status !== "online") {
@@ -597,65 +548,6 @@ export function SailOperatorPanel() {
     setManualTrackPeer("");
   }
 
-  async function handleRefreshMesh() {
-    setMeshStatusBusy(true);
-    setMeshStatusError(null);
-
-    try {
-      const result = await getAxlStatus();
-      setMeshTopology(result);
-      if (result.peerId?.trim()) {
-        setStoredLocalAxlPeerId(result.peerId.trim());
-        setLocalAxlPeerStored(result.peerId.trim());
-      }
-      if (result.peers?.length && !meshSendTo) {
-        setMeshSendTo(result.peers[0].peerId);
-      }
-    } catch (error) {
-      setMeshStatusError(friendlyError((error as Error).message ?? String(error)));
-      setMeshTopology(null);
-    } finally {
-      setMeshStatusBusy(false);
-    }
-  }
-
-  async function handleSendMeshMessage() {
-    setMeshSendBusy(true);
-    setMeshSendError(null);
-    setMeshSendResult(null);
-
-    try {
-      if (!meshSendTo.trim()) throw new Error("Recipient peer ID required");
-      if (!meshMessage.trim()) throw new Error("Message payload required");
-
-      await sendAxlMessage({
-        to: meshSendTo.trim(),
-        topic: meshTopic.trim() || undefined,
-        message: meshMessage,
-      });
-      setMeshSendResult("Message handed to the AXL bridge.");
-    } catch (error) {
-      setMeshSendError(friendlyError((error as Error).message ?? String(error)));
-    } finally {
-      setMeshSendBusy(false);
-    }
-  }
-
-  async function handlePollInbox() {
-    setMeshInboxBusy(true);
-    setMeshInboxError(null);
-
-    try {
-      const since = meshInbox[0]?.timestamp;
-      const result = await receiveAxlMessages(since);
-      setMeshInbox(result.messages);
-    } catch (error) {
-      setMeshInboxError(friendlyError((error as Error).message ?? String(error)));
-    } finally {
-      setMeshInboxBusy(false);
-    }
-  }
-
   const handlePollRevealInbox = useCallback(async () => {
     setRevealInboxBusy(true);
     setRevealInboxError(null);
@@ -712,81 +604,8 @@ export function SailOperatorPanel() {
     return rows.sort((a, b) => b.timestamp - a.timestamp);
   }, [revealInbox, answeredAuditRequests]);
 
-  // --- Agent discovery ---
-  async function handleDiscover() {
-    setDiscoverBusy(true);
-    setDiscoverError(null);
-    setDiscoveredAgent(null);
-
-    try {
-      if (!discoverEns.trim()) throw new Error("ENS name required");
-      const result = await discoverAgent(discoverEns.trim());
-      setDiscoveredAgent(result);
-      const pid = result.records?.axl_peer_id?.trim();
-      if (pid) {
-        setTrackedAxlEntries(
-          upsertTrackedAxlEntry({
-            ens: result.ensName,
-            axlPeerId: pid,
-            source: "discover",
-          }),
-        );
-      }
-    } catch (error) {
-      setDiscoverError(friendlyError((error as Error).message ?? String(error)));
-    } finally {
-      setDiscoverBusy(false);
-    }
-  }
-
-  // --- Delegation ---
-  async function handleDelegate() {
-    setDelegateBusy(true);
-    setDelegateError(null);
-    setDelegateResult(null);
-
-    try {
-      if (!delegateWorker.trim()) throw new Error("Worker ENS required");
-      if (!delegateTask_.trim()) throw new Error("Task required");
-      if (!delegateAgentEns.trim()) throw new Error("Agent ENS required");
-
-      const result = await delegateTask({
-        workerEns: delegateWorker.trim(),
-        task: delegateTask_.trim(),
-        agentEns: delegateAgentEns.trim(),
-      });
-      setDelegateResult(result);
-      await refreshDelegations();
-    } catch (error) {
-      setDelegateError(friendlyError((error as Error).message ?? String(error)));
-    } finally {
-      setDelegateBusy(false);
-    }
-  }
-
-  // --- Refresh delegation + processed task lists ---
-  async function refreshDelegations() {
-    try {
-      const [d, t] = await Promise.all([getDelegations(), getProcessedTasks()]);
-      setDelegationList(d.delegations);
-      setProcessedTaskList(t.tasks);
-    } catch {
-      // silent — these are background refreshes
-    }
-  }
-
-  // Auto-refresh delegations when Mesh is open
-  useEffect(() => {
-    if (primary !== "mesh") return;
-    if (backend.status !== "online") return;
-
-    const id = setInterval(() => refreshDelegations(), 3000);
-    refreshDelegations();
-    return () => clearInterval(id);
-  }, [primary, backend.status]);
-
   // Poll AXL for auditor SEAL messages whenever the API is up — not only on the Reveal tab,
-  // otherwise messages never dequeue if the operator stayed on Register / Pipeline / Mesh.
+  // otherwise messages never dequeue if the operator stayed on Register / Pipeline.
   useEffect(() => {
     if (backend.status !== "online") return;
 
@@ -826,9 +645,6 @@ export function SailOperatorPanel() {
                   {pendingFormalAuditRequests.length}
                 </span>
               ) : null}
-            </button>
-            <button type="button" className={primaryCls("mesh")} onClick={() => setPrimary("mesh")}>
-              Mesh
             </button>
           </div>
         </div>
@@ -1410,7 +1226,7 @@ export function SailOperatorPanel() {
             <div className="rounded border border-[#05058a]/15 bg-[#f8f9fc] px-3 py-3 text-[11px]">
               <p className="font-semibold text-[#05058a]">Tracked axl_peer_id</p>
               <p className="mt-1 text-neutral-600">
-                Saved when you publish a subname with <code className="font-mono text-[10px]">axl_peer_id</code>, discover an agent in Mesh, or add a row below. Compare each ENS row to{" "}
+                Saved when you publish a subname with <code className="font-mono text-[10px]">axl_peer_id</code>, discover an agent on the Agent path, or add a row below. Compare each ENS row to{" "}
                 <strong className="font-medium text-neutral-800">this node</strong> — if it does not match, auditors addressing ENS still send to the wrong mesh identity for{" "}
                 <em className="font-medium">this</em> API&apos;s inbox.
               </p>
@@ -1668,262 +1484,6 @@ export function SailOperatorPanel() {
                 })}
               </ul>
             )}
-          </div>
-        )}
-
-        {primary === "mesh" && (
-          <div className="grid gap-4 xl:grid-cols-3">
-            {/* --- LEFT: Topology + Discovery --- */}
-            <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
-              {/* Topology */}
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">AXL topology</p>
-                <h3 className="mt-2 text-base font-bold text-[#05058a]">Mesh health</h3>
-              </div>
-              <button
-                onClick={handleRefreshMesh}
-                disabled={meshStatusBusy || backend.status !== "online"}
-                className="rounded border border-[#05058a] px-3 py-1.5 text-xs text-[#05058a] disabled:opacity-40"
-              >
-                {meshStatusBusy ? "Refreshing…" : "Refresh"}
-              </button>
-              {meshStatusError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{meshStatusError}</p>
-              ) : null}
-              {meshTopology ? (
-                <div className="space-y-3 text-xs">
-                  <div className="rounded border border-neutral-200 bg-white p-3">
-                    <p className="text-neutral-500">This node</p>
-                    <p className="mt-1 break-all font-mono text-[#05058a]">{meshTopology.peerId ?? "unknown"}</p>
-                    <p className="mt-1 text-[10px] text-neutral-400">{shortPeer(meshTopology.peerId ?? "")}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-neutral-500">Connected peers ({meshTopology.peers?.length ?? 0})</p>
-                    {meshTopology.peers?.map((peer) => (
-                      <button key={peer.peerId} onClick={() => setMeshSendTo(peer.peerId)} className="block w-full border border-neutral-200 bg-white p-2 text-left hover:bg-neutral-50">
-                        <p className="font-mono text-[11px] text-[#05058a]">{shortPeer(peer.peerId)}</p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Agent Discovery */}
-              <div className="border-t border-neutral-200 pt-4">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Agent discovery</p>
-                <div className="mt-2 flex gap-2">
-                  <input
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs"
-                    placeholder="agent.sail.eth"
-                    value={discoverEns}
-                    onChange={(e) => setDiscoverEns(e.target.value)}
-                  />
-                  <button
-                    onClick={handleDiscover}
-                    disabled={discoverBusy || backend.status !== "online"}
-                    className="rounded border border-[#05058a] px-3 py-1.5 text-xs text-[#05058a] disabled:opacity-40"
-                  >
-                    {discoverBusy ? "…" : "Lookup"}
-                  </button>
-                </div>
-                {discoverError ? (
-                  <p className="mt-2 rounded border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] text-red-700">{discoverError}</p>
-                ) : null}
-                {discoveredAgent ? (
-                  <div className="mt-2 space-y-2 rounded border border-emerald-200 bg-emerald-50 p-3 text-[11px]">
-                    <p className="font-medium text-emerald-800">✓ {discoveredAgent.ensName}</p>
-                    {discoveredAgent.reachable ? (
-                      <span className="inline-block bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">Reachable</span>
-                    ) : (
-                      <span className="inline-block bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">No axl_peer_id</span>
-                    )}
-                    {discoveredAgent.agent && (
-                      <div className="space-y-1 text-neutral-600">
-                        <p>Tier: {TIER_LABELS[discoveredAgent.agent.tier as 0 | 1 | 2] ?? "unknown"}</p>
-                        <p>Stake: {(Number(discoveredAgent.agent.stake) / 1e18).toFixed(4)} ETH</p>
-                        <p className="break-all">Wallet: {shortAddr(discoveredAgent.agent.wallet)}</p>
-                      </div>
-                    )}
-                    {discoveredAgent.records.axl_peer_id && (
-                      <p className="break-all text-[10px] text-neutral-500">Peer: {shortPeer(discoveredAgent.records.axl_peer_id)}</p>
-                    )}
-                    {discoveredAgent.reachable && (
-                      <button
-                        onClick={() => { setDelegateWorker(discoveredAgent.ensName); setDelegateAgentEns(discoveredAgent.ensName); }}
-                        className="mt-1 inline-block rounded bg-[#05058a] px-2 py-1 text-[10px] text-white"
-                      >
-                        Queue for delegation →
-                      </button>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            {/* --- MIDDLE: Delegation + Low-level messaging --- */}
-            <div className="space-y-4 border border-neutral-200 bg-white p-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Delegation</p>
-                <h3 className="mt-2 text-base font-bold text-[#05058a]">Delegate task to worker</h3>
-                <p className="mt-1 text-xs text-neutral-500">The worker auto-runs the SAIL pipeline and returns a commitmentHash proving correct execution.</p>
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs text-neutral-500">Worker ENS</label>
-                  <input
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                    placeholder="worker.sail.eth"
-                    value={delegateWorker}
-                    onChange={(e) => setDelegateWorker(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-neutral-500">Task prompt</label>
-                  <textarea
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
-                    rows={4}
-                    placeholder="Analyze this treasury rebalancing scenario and recommend an allocation..."
-                    value={delegateTask_}
-                    onChange={(e) => setDelegateTask_(e.target.value)}
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-neutral-500">Commit as agent ENS</label>
-                  <input
-                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                    placeholder="your-agent.sail.eth"
-                    value={delegateAgentEns}
-                    onChange={(e) => setDelegateAgentEns(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={handleDelegate}
-                disabled={delegateBusy || backend.status !== "online"}
-                className="rounded bg-[#05058a] px-4 py-2 text-sm text-white disabled:opacity-40"
-              >
-                {delegateBusy ? "Delegating…" : "Delegate task"}
-              </button>
-              {delegateError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{delegateError}</p>
-              ) : null}
-              {delegateResult ? (
-                <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                  <p className="font-medium">✓ Task sent</p>
-                  <p className="font-mono text-[10px]">Task ID: {delegateResult.id}</p>
-                  <p className="text-[10px]">Status: {delegateResult.status}</p>
-                </div>
-              ) : null}
-
-              {/* Raw messaging (kept for advanced use) */}
-              <div className="border-t border-neutral-200 pt-4">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Raw AXL messaging</p>
-                <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-1 block text-xs text-neutral-500">To peer</label>
-                    <input className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs" value={meshSendTo} onChange={(e) => setMeshSendTo(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-neutral-500">Topic</label>
-                    <input className="w-full rounded border border-neutral-300 px-2 py-1.5 text-xs" value={meshTopic} onChange={(e) => setMeshTopic(e.target.value)} />
-                  </div>
-                </div>
-                <textarea className="mt-2 w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs" rows={3} value={meshMessage} onChange={(e) => setMeshMessage(e.target.value)} />
-                <div className="mt-2 flex gap-2">
-                  <button onClick={handleSendMeshMessage} disabled={meshSendBusy || backend.status !== "online"} className="rounded border border-[#05058a] px-3 py-1.5 text-xs text-[#05058a] disabled:opacity-40">
-                    {meshSendBusy ? "…" : "Send"}
-                  </button>
-                  <button onClick={handlePollInbox} disabled={meshInboxBusy || backend.status !== "online"} className="rounded border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50 disabled:opacity-40">
-                    {meshInboxBusy ? "…" : "Poll"}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* --- RIGHT: Delegations + Processed tasks --- */}
-            <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Tracking</p>
-                <h3 className="mt-2 text-base font-bold text-[#05058a]">Your delegations</h3>
-                <p className="mt-1 text-xs text-neutral-500">Auto-updates every 3s when this tab is open.</p>
-              </div>
-
-              {delegationList.length ? (
-                <div className="space-y-2">
-                  {delegationList.slice(0, 5).map((d) => (
-                    <div key={d.id} className="border border-neutral-200 bg-white p-3 text-[11px]">
-                      <div className="flex items-center justify-between">
-                        <p className="font-mono text-[#05058a]">{d.id.slice(0, 12)}…</p>
-                        <span className={`px-1.5 py-0.5 text-[10px] font-medium ${
-                          d.status === "completed" ? "bg-emerald-100 text-emerald-700" : d.status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                        }`}>{d.status}</span>
-                      </div>
-                      <p className="mt-1 text-neutral-600">To: {d.workerEns}</p>
-                      <p className="text-neutral-500 line-clamp-2">{d.task}</p>
-                      {d.result && (
-                        <div className="mt-2 border-t border-neutral-200 pt-2 text-[10px]">
-                          <p>Output: {d.result.output.slice(0, 60)}…</p>
-                          <span className={`mt-1 inline-block px-1.5 py-0.5 text-[9px] ${
-                            d.result.verified === true
-                              ? "bg-emerald-100 text-emerald-700"
-                              : d.result.verified === false
-                                ? "bg-red-100 text-red-700"
-                                : "bg-neutral-100 text-neutral-500"
-                          }`}>
-                            {d.result.verified === true
-                              ? "TEE verified"
-                              : d.result.verified === false
-                                ? "TEE rejected"
-                                : "TEE sig not stored (testnet)"}
-                          </span>
-                          <p className="mt-1 text-neutral-400">Commitment: {shortAddr(d.result.commitmentHash)}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-xs text-neutral-500">No delegations yet. Delegate a task to a worker agent and results will appear here.</p>
-              )}
-
-              {/* Processed tasks (worker side) */}
-              <div className="border-t border-neutral-200 pt-4">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Processed tasks</p>
-                <p className="mt-1 text-xs text-neutral-500">Tasks this node received and processed for others.</p>
-                {processedTaskList.length ? (
-                  <div className="mt-2 space-y-2">
-                    {processedTaskList.slice(0, 5).map((t) => (
-                      <div key={t.taskId} className="border border-neutral-200 bg-white p-3 text-[11px]">
-                        <div className="flex items-center justify-between">
-                          <p className="font-mono text-[#05058a]">{t.taskId.slice(0, 12)}…</p>
-                          <span className={`px-1.5 py-0.5 text-[10px] ${
-                            t.status === "completed" ? "bg-emerald-100 text-emerald-700" : t.status === "failed" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
-                          }`}>{t.status}</span>
-                        </div>
-                        <p className="text-neutral-600">From: {shortPeer(t.from)}</p>
-                        <p className="text-neutral-500 line-clamp-1">{t.task}</p>
-                        {t.result && (
-                          <div className="mt-1 text-[10px] text-neutral-400">Commitment: {shortAddr(t.result.commitmentHash)}</div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="mt-2 text-xs text-neutral-500">No tasks processed yet. Ensure the Task Router is running.</p>
-                )}
-              </div>
-
-              {/* Task router control */}
-              <div className="border-t border-neutral-200 pt-4">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Task router</p>
-                <div className="mt-2 flex gap-2">
-                  <button onClick={async () => { await startTaskRouter(); await refreshDelegations(); }} className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white">Start</button>
-                  <button onClick={async () => { await stopTaskRouter(); await refreshDelegations(); }} className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50">Stop</button>
-                </div>
-              </div>
-            </div>
           </div>
         )}
       </div>

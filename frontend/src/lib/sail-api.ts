@@ -137,6 +137,25 @@ export async function getOpenAgentTasks() {
   return jsonRequest<{ tasks: SailBoardTask[] }>("/api/agent-tasks/open");
 }
 
+/** Gigs posted by this agent (open, claimed, cancelled) — same store as MCP create_sail_task. */
+export async function getPostedAgentTasks(posterAgentEns: string) {
+  return jsonRequest<{ tasks: SailBoardTask[] }>(
+    `/api/agent-tasks/posted/${encodeURIComponent(posterAgentEns.trim())}`,
+  );
+}
+
+export async function createAgentTask(input: {
+  posterAgentEns: string;
+  instruction: string;
+  title?: string;
+  inputs?: unknown;
+}) {
+  return jsonRequest<{ task: SailBoardTask }>("/api/agent-tasks", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function getAgentTaskById(id: string) {
   return jsonRequest<{ task: SailBoardTask }>(`/api/agent-tasks/${encodeURIComponent(id.trim())}`);
 }

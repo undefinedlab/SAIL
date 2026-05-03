@@ -124,3 +124,12 @@ export function listOpenTasks(): SailBoardTask[] {
     .filter((t) => t.status === "open")
     .sort((a, b) => b.createdAt - a.createdAt);
 }
+
+/** All gigs posted by an ENS (any status), newest first — for operator dashboards. */
+export function listTasksForPoster(posterAgentEns: string): SailBoardTask[] {
+  const key = normalizeEns(posterAgentEns).toLowerCase();
+  if (!key) return [];
+  return [...tasks.values()]
+    .filter((t) => normalizeEns(t.posterAgentEns).toLowerCase() === key)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}

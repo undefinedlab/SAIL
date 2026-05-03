@@ -11,7 +11,7 @@ export default function OperatorDashboardPage() {
           <ConsoleFrame
             eyebrow="Operator Path"
             title="Sailor's Toolbox"
-            description="Register Agents Identity, run Pipeline, Monitor on-chain state, run Agent-to-Agent communication."
+            description="Register agent identity, run the commitment pipeline, manage ENS, and handle formal audit / reveal — agent-to-agent mesh lives under Path C → Agent."
           >
             <SailOperatorPanel />
           </ConsoleFrame>
