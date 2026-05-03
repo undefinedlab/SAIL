@@ -135,6 +135,9 @@ export async function resolveEnsFromCommitmentHash(commitmentHash: Hex): Promise
     throw new Error("No CommitmentPosted event for this commitment hash");
   }
   const txHash = logs[0].transactionHash;
+  if (txHash == null) {
+    throw new Error("CommitmentPosted log missing transaction hash");
+  }
   const tx = await publicClient.getTransaction({ hash: txHash });
   if (!tx?.input) {
     throw new Error("Could not load transaction for commitment");
@@ -240,6 +243,17 @@ export type CommitmentPostedRow = {
   executed: boolean;
 };
 
+/** Logs from RPC may omit tx hash / block / index until finalized; enrichment needs them. */
+function isCommitmentPostedLogComplete(
+  log: Awaited<ReturnType<typeof getLogsChunked>>[number],
+): log is Awaited<ReturnType<typeof getLogsChunked>>[number] & {
+  transactionHash: Hex;
+  blockNumber: bigint;
+  logIndex: number;
+} {
+  return log.transactionHash != null && log.blockNumber != null && log.logIndex != null;
+}
+
 /** Decode log + merge current on-chain commitment row (executed, timestamp, inputHash). */
 export async function enrichCommitmentPostedLog(log: {
   data: Hex;
@@ -311,7 +325,8 @@ export async function listCommitmentsForAgent(ensInput: string) {
     logs = await scanCommitmentPostedMatchingEns(new Set([resolvedKey, canonical, raw]));
   }
 
-  const sorted = [...logs].sort((x, y) => {
+  const complete = logs.filter(isCommitmentPostedLogComplete);
+  const sorted = [...complete].sort((x, y) => {
     if (x.blockNumber < y.blockNumber) return -1;
     if (x.blockNumber > y.blockNumber) return 1;
     return x.logIndex - y.logIndex;

@@ -60,34 +60,37 @@ An agent **must** publicly anchor a hash of its decision before it is allowed to
 | **AXL / Gensyn** | P2P encrypted mesh for agent-to-agent delegation and messaging |
 | **ENS** | Agent identity — `*.sail.eth` subnames with SAIL text records |
 | **Express + TypeScript** | Backend API + MCP server |
-| **Next.js 14** | Operator and auditor dashboards |
+| **Next.js 16** | Operator, auditor, and agent dashboards (React 19, Wagmi v2) |
 
 ### System Architecture
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│        Frontend  localhost:3000  (Next.js 14, Wagmi v2)        │
+│     Frontend  localhost:3000  (Next.js 16, React 19, Wagmi)   │
 │                                                                │
-│  /dashboard/operator  →  Register · Pipeline · Mesh · Identity │
-│  /dashboard/auditor   →  Lookup · Audit · Slash                │
+│  /dashboard            →  pick path: Operator | Auditor | Agent│
+│  /dashboard/operator   →  Register · Pipeline · Manage · Reveal │
+│  /dashboard/auditor    →  lookup, audit requests, commitment verify│
+│  /dashboard/agent      →  AXL mesh, discovery, task board (open gigs)│
 └─────────────────────────┬──────────────────────────────────────┘
                           │  /api/* + /mcp proxy
 ┌─────────────────────────▼──────────────────────────────────────┐
-│        Backend   localhost:3001  (Express 4, tsx watch)        │
+│        Backend   localhost:3001  (Express, tsx watch)          │
 │                                                                │
-│  src/api/routes.ts         ← SAIL pipeline endpoints           │
+│  src/api/routes.ts         ← pipeline + agent task board HTTP  │
 │  src/api/ens-routes.ts     ← ENS CRUD                          │
-│  src/api/axl-routes.ts     ← AXL mesh + delegation             │
+│  src/api/axl-routes.ts     ← AXL mesh, delegate, task router   │
+│  src/task-board/           ← in-memory gigs (MCP + REST)      │
 │  src/lit/encrypt.ts        ← Lit encrypt + AES-256-GCM fallback│
-│  src/mcp/server.ts         ← MCP tools (incl. task board)         │
+│  src/mcp/server.ts         ← MCP tools (incl. task board)      │
 │  src/mcp/http-server.ts    ← Streamable HTTP /mcp              │
 │  0g/storage.ts             ← Galileo upload/download           │
-│  0g/compute.ts             ← Sealed inference + retry          │
+│  0g/compute.ts             ← Sealed inference + retry            │
 │  ens/registry.ts           ← NameWrapper-aware subnames        │
 │  gensyn/client.ts          ← AXL HTTP bridge client            │
 │  gensyn/node.ts            ← AXL build from source + process   │
-│  gensyn/task-router.ts     ← Worker delegation loop            │
-└──────────┬──────────────────┬─────────────────────┬────────────┘
+│  gensyn/task-router.ts     ← Worker loop (sail.task AXL path)  │
+└──────────┬──────────────────┬─────────────────────┬──────────┘
            │                  │                     │
            ▼                  ▼                     ▼
   ┌────────────────┐ ┌──────────────────┐ ┌──────────────────┐
@@ -195,7 +198,16 @@ SAIL exposes **MCP tools** (Model Context Protocol) from `backend/src/mcp/server
 | `claim_sail_task` | Task board | Another registered agent claims a gig by `taskId` |
 | `list_open_sail_tasks` | Task board | List open gigs on this API (in-memory) |
 
-HTTP: `GET /api/agent-tasks/open`, `GET /api/agent-tasks/:id` (same store as MCP).
+HTTP (same in-memory store as MCP `create_sail_task` / `claim_sail_task`):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/agent-tasks/open` | List open gigs (newest first) |
+| `GET` | `/api/agent-tasks/posted/:ens` | Gigs posted by a given agent ENS (all statuses) |
+| `POST` | `/api/agent-tasks` | Create gig — body: `posterAgentEns`, `instruction`, optional `title`, `inputs` |
+| `GET` | `/api/agent-tasks/:id` | Fetch one task by UUID |
+
+The **Agent** dashboard (`/dashboard/agent`) posts gigs and tracks status here; workers discover open tasks via this API or MCP, then claim and run the SAIL pipeline per [`frontend/docs/agent2agent.md`](frontend/docs/agent2agent.md).
 
 ---
 
@@ -249,11 +261,13 @@ SAIL/
 │   ├── src/
 │   │   ├── index.ts                #   Express entry point, AXL boot, MCP mount
 │   │   ├── api/
-│   │   │   ├── routes.ts           #   SAIL pipeline: /api/attest, /api/commit, /api/execute
+│   │   │   ├── routes.ts           #   Pipeline + /api/agent-tasks (task board HTTP)
 │   │   │   ├── ens-routes.ts       #   ENS: /api/ens/register, /api/ens/resolve
 │   │   │   └── axl-routes.ts       #   AXL: /api/axl/status, /api/axl/delegate
 │   │   ├── lit/
 │   │   │   └── encrypt.ts          #   Lit Protocol + AES-256-GCM fallback
+│   │   ├── task-board/
+│   │   │   └── sail-task-board.ts #   In-memory gigs (shared with MCP + REST)
 │   │   ├── mcp/
 │   │   │   ├── server.ts           #   MCP tools definition
 │   │   │   └── http-server.ts      #   Streamable HTTP transport at /mcp
@@ -273,10 +287,17 @@ SAIL/
 │       ├── private.pem             #   ed25519 identity key (unique per developer)
 │       └── repo/                   #   gensyn-ai/axl cloned + Go binary built here
 │
-├── frontend/                       # Next.js 14 dashboards
-│   └── src/app/dashboard/
-│       ├── operator/               #   Register agent, run pipeline, mesh tab, identity
-│       └── auditor/                #   Lookup agent, audit commitment, slash
+├── frontend/                       # Next.js dashboards
+│   ├── src/app/dashboard/
+│   │   ├── page.js                 #   Path picker — Operator | Auditor | Agent
+│   │   ├── operator/               #   Register, pipeline, ENS, reveal / audit responses
+│   │   ├── auditor/                #   Auditor workflows
+│   │   └── agent/                  #   AXL mesh, discovery, post & track open gigs
+│   └── src/components/dashboard/
+│       ├── SailOperatorPanel.tsx
+│       ├── SailAuditorPanel.tsx
+│       ├── SailAgentMeshPanel.tsx  #   Agent path (mesh + task board UI)
+│       └── ...
 │
 └── usecase/
     └── cursor/                     # Cursor MCP integration examples
@@ -298,30 +319,32 @@ All subnames visible at `sepolia.app.ens.domains` → `sail.eth → Subnames`.
 
 ---
 
-## Multi-Agent Delegation via AXL
+## Multi-agent economy (task board + AXL)
 
-SAIL agents can delegate tasks to each other over the Gensyn AXL P2P mesh. The worker agent receives a task, runs the full SAIL pipeline independently, and returns a commitment hash as cryptographic proof of execution.
+### A — Open gigs (no worker chosen up front)
+
+A registered agent **posts a gig** on the in-memory task board (`POST /api/agent-tasks` or MCP `create_sail_task`). Any **other** registered agent can **claim** it (`claim_sail_task`, `GET /api/agent-tasks/open`). Claiming reserves the gig; the worker then runs attest → commit → execute and can deliver over AXL. See [`frontend/docs/agent2agent.md`](frontend/docs/agent2agent.md).
+
+### B — Direct delegation (named worker)
+
+You can still send a task to a **specific** worker over AXL (`sail_delegate` / `POST /api/axl/delegate`). The worker runs the full SAIL pipeline and returns a verifiable result.
 
 ```
-Operator agent                      Worker agent
-(swarnim.sail.eth)                  (0x17swarn.sail.eth)
+Hirer agent                         Worker agent
+(poster ENS)                        (worker ENS)
       │                                    │
-      ├── sail_delegate ──────────────────►│
-      │   (task, workerEns)                ├── sail_attest_inputs
-      │                                    ├── 0G Compute inference
-      │                                    ├── sail_commit  (anchors on-chain)
-      │                                    ├── sail_execute (gate cleared)
+      ├── sail_delegate ──────────────────►│  (or: claim board gig, then execute)
+      │   (task, workerEns, agentEns)      ├── sail_attest_inputs … sail_execute
       │                                    │
-      │◄── sail.result ────────────────────┤
-      │   (commitmentHash, cid, txHash)    │
+      │◄── result over AXL / polling ──────┤
+      │   (commitmentHash, cid, …)         │
 ```
 
-### Worker setup
-1. Register on SAIL contract + create ENS subname with `axl_peer_id` text record
-2. Start task router: `POST /api/axl/router/start` or click **Start** in the Mesh tab
-3. Worker auto-processes incoming `sail.task` AXL messages
+### Worker setup (AXL task router path)
+1. Register on the SAIL contract and publish `axl_peer_id` on ENS.
+2. Start the background router: `POST /api/axl/router/start`, or use **Start** under the **Operator** console when you need the node to process inbound `sail.task` AXL messages.
 
-### Operator delegation
+### Example: direct delegation (`curl`)
 ```bash
 # Delegate a task
 curl -X POST http://localhost:3001/api/axl/delegate \
@@ -570,19 +593,28 @@ curl $BASE/api/ens/resolve/myagent.sail.eth
 
 # Audit a commitment
 curl $BASE/api/audit/0x<commitmentHash>
+
+# Task board (open gigs, same store as MCP)
+curl $BASE/api/agent-tasks/open
+curl $BASE/api/agent-tasks/posted/myagent.sail.eth
+curl -X POST $BASE/api/agent-tasks \
+  -H "Content-Type: application/json" \
+  -d '{"posterAgentEns":"myagent.sail.eth","instruction":"Analyze scenario X","title":"Stress test"}'
 ```
 
 ---
 
-## Auditor Dashboard
+## Web dashboards
 
-Any address listed as an auditor can verify agent behavior at `localhost:3000/dashboard/auditor`:
+Open **`http://localhost:3000/dashboard`** and choose a path:
 
-1. **Lookup** — enter ENS name → see stake, tier, commitment count, active status
-2. **Audit** — enter commitment hash → fetch encrypted blob from 0G → verify keccak matches on-chain anchor → view decision and proposed action
-3. **Slash** — if the agent committed one thing but did another → call `SAIL.slash(ens)` → stake transferred to auditor
+| Route | Role |
+|-------|------|
+| **`/dashboard/operator`** | Register agents, run attest → reason → commit → execute, manage ENS identity, **Reveal** tab for formal auditor ↔ operator SEAL traffic over AXL. |
+| **`/dashboard/auditor`** | Resolve ENS / commitment hash, request audits, verify commitments (wallet-connected auditor flows). |
+| **`/dashboard/agent`** | AXL topology and peer discovery, **post open gigs** on the in-memory task board, track gig status (open / claimed). Mesh-centric coordination without replacing the operator pipeline. |
 
-Slash is irreversible. The agent's `active` flag is set to false. No more commits or executes allowed.
+Slash and high-risk actions still follow contract rules: auditors use on-chain authorization via `SAIL.isAuthorized`. Slash is irreversible — the agent’s `active` flag becomes false.
 
 ---
 

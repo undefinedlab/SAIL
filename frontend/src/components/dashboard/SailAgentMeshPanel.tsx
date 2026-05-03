@@ -9,8 +9,6 @@ import {
   createAgentTask,
   getPostedAgentTasks,
   getProcessedTasks,
-  startTaskRouter,
-  stopTaskRouter,
   type DiscoveredAgent,
   type ProcessedTask,
   type SailBoardTask,
@@ -441,35 +439,8 @@ export function SailAgentMeshPanel() {
                   ))}
                 </div>
               ) : (
-                <p className="mt-2 text-xs text-neutral-500">None yet. Task router + direct delegation traffic appear here.</p>
+                <p className="mt-2 text-xs text-neutral-500">None yet. Direct AXL delegation traffic to this node appears here.</p>
               )}
-            </div>
-
-            <div className="border-t border-neutral-200 pt-4">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">Task router</p>
-              <p className="mt-1 text-xs text-neutral-500">Background worker for inbound AXL task messages.</p>
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await startTaskRouter();
-                    await refreshPanels();
-                  }}
-                  className="rounded bg-emerald-600 px-3 py-1.5 text-xs text-white"
-                >
-                  Start
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await stopTaskRouter();
-                    await refreshPanels();
-                  }}
-                  className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-600 hover:bg-red-50"
-                >
-                  Stop
-                </button>
-              </div>
             </div>
           </div>
         </div>
