@@ -46,6 +46,9 @@ contract/broadcast/
 contract/lib/
 !contract/lib/.gitmodules
 
+# ── Claude Code ──────────────────────────────────────────────────────────────
+.claude/
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 coverage/
 .vercel
