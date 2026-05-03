@@ -83,7 +83,7 @@ export function buildDenyMessage(requestId: string, agentEns: string): string {
 
 /** Parse a formal audit request body (must include requestId + agentEns). */
 export function parseAuditRequestMessage(body: string): ParsedAuditRequest | null {
-  const t = body.trim();
+  const t = body.replace(/^\uFEFF/, "").trim();
   if (!t.startsWith("SEAL — Audit request")) return null;
   const kv = parseKeyValueLines(body);
   const requestId = kv.requestId;

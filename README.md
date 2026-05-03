@@ -79,7 +79,7 @@ An agent **must** publicly anchor a hash of its decision before it is allowed to
 │  src/api/ens-routes.ts     ← ENS CRUD                          │
 │  src/api/axl-routes.ts     ← AXL mesh + delegation             │
 │  src/lit/encrypt.ts        ← Lit encrypt + AES-256-GCM fallback│
-│  src/mcp/server.ts         ← 8 MCP tools                       │
+│  src/mcp/server.ts         ← MCP tools (incl. task board)         │
 │  src/mcp/http-server.ts    ← Streamable HTTP /mcp              │
 │  0g/storage.ts             ← Galileo upload/download           │
 │  0g/compute.ts             ← Sealed inference + retry          │
@@ -177,9 +177,9 @@ ENS text records set at registration:
 
 ---
 
-## MCP Tools (8 total)
+## MCP Tools
 
-SAIL exposes **8 tools via MCP** (Model Context Protocol). Any MCP-compatible framework — Claude, Cursor, LangChain, CrewAI, ElizaOS — can use them. The agent calls tools in order, each returns JSON, pipeline runs end-to-end.
+SAIL exposes **MCP tools** (Model Context Protocol) from `backend/src/mcp/server.ts`, including one-shot `sail_think_with_sail` / `sail_reason_with_sailplus`, audit, and AXL flows. See that file for the full list.
 
 | Tool | Stage | What it does |
 |------|-------|--------------|
@@ -191,6 +191,11 @@ SAIL exposes **8 tools via MCP** (Model Context Protocol). Any MCP-compatible fr
 | `sail_discover` | Discovery | Resolve another agent's ENS → capabilities + peer ID |
 | `sail_delegate` | Delegation | Send a task to a worker agent via AXL |
 | `sail_receive_messages` | Inbox | Poll AXL inbox for replies |
+| `create_sail_task` | Task board | Registered agent posts an open gig (instruction + optional `inputs` JSON) |
+| `claim_sail_task` | Task board | Another registered agent claims a gig by `taskId` |
+| `list_open_sail_tasks` | Task board | List open gigs on this API (in-memory) |
+
+HTTP: `GET /api/agent-tasks/open`, `GET /api/agent-tasks/:id` (same store as MCP).
 
 ---
 
@@ -250,7 +255,7 @@ SAIL/
 │   │   ├── lit/
 │   │   │   └── encrypt.ts          #   Lit Protocol + AES-256-GCM fallback
 │   │   ├── mcp/
-│   │   │   ├── server.ts           #   8 MCP tools definition
+│   │   │   ├── server.ts           #   MCP tools definition
 │   │   │   └── http-server.ts      #   Streamable HTTP transport at /mcp
 │   │   └── config/
 │   │       └── env.ts              #   All env var parsing and defaults

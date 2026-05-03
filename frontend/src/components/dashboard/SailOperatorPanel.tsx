@@ -14,6 +14,7 @@ import {
   ownsEnsName,
   receiveAxlMessages,
   reason,
+  type RecvPollStats,
   registerAgent,
   registerEnsSubname,
   sendAxlMessage,
@@ -41,6 +42,15 @@ import {
   parseAuditRequestMessage,
   type ParsedAuditRequest,
 } from "@/lib/audit-message";
+import {
+  getStoredLocalAxlPeerId,
+  loadTrackedAxlEntries,
+  peerIdsMatch,
+  removeTrackedAxlEntry,
+  setStoredLocalAxlPeerId,
+  upsertTrackedAxlEntry,
+  type TrackedAxlEntry,
+} from "@/lib/tracked-axl-peers";
 
 const SAIL_ERRORS: Record<string, string> = {
   SAIL__AlreadyRegistered:    "Agent already registered with this ENS name",
@@ -86,8 +96,9 @@ type AxlInboxMessage = {
 };
 
 /** Matches wire formats in `src/lib/audit-message.ts` — auditor ↔ operator SEAL traffic over AXL. */
-function isRevealInboxMessage(body: string): boolean {
-  const t = body.trim();
+function isRevealInboxMessage(body: string, topic?: string): boolean {
+  if (topic === SEAL_AX_TOPIC) return true;
+  const t = body.replace(/^\uFEFF/, "").trim();
   return (
     t.startsWith("SEAL — Submit audit reveal") ||
     t.startsWith("SEAL — Audit request") ||
@@ -109,6 +120,13 @@ function mergeRevealInbox(prev: AxlInboxMessage[], batch: AxlInboxMessage[]): Ax
     }
   }
   return out.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function trackedEnsForSender(peerId: string, entries: TrackedAxlEntry[]): string | undefined {
+  for (const e of entries) {
+    if (peerIdsMatch(e.axlPeerId, peerId)) return e.ens;
+  }
+  return undefined;
 }
 
 function neuronToA0gi(neuron: string): string {
@@ -271,6 +289,14 @@ export function SailOperatorPanel() {
   const [auditRespondBusy, setAuditRespondBusy] = useState(false);
   const [auditRespondError, setAuditRespondError] = useState<string | null>(null);
 
+  /** LocalStorage — ENS ↔ axl_peer_id we registered/discovered; local node id from mesh/status. */
+  const [trackedAxlEntries, setTrackedAxlEntries] = useState<TrackedAxlEntry[]>([]);
+  const [localAxlPeerStored, setLocalAxlPeerStored] = useState<string | null>(null);
+  const [manualTrackEns, setManualTrackEns] = useState("");
+  const [manualTrackPeer, setManualTrackPeer] = useState("");
+  const [revealLastPollAt, setRevealLastPollAt] = useState<number | null>(null);
+  const [recvPollStats, setRecvPollStats] = useState<RecvPollStats | null>(null);
+
   // --- Agent-to-agent communication state ---
   const [discoverEns, setDiscoverEns] = useState("");
   const [discoveredAgent, setDiscoveredAgent] = useState<DiscoveredAgent | null>(null);
@@ -316,6 +342,26 @@ export function SailOperatorPanel() {
         if (!cancelled) setComputeLedger(null);
       });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [backend.status]);
+
+  useEffect(() => {
+    setTrackedAxlEntries(loadTrackedAxlEntries());
+    setLocalAxlPeerStored(getStoredLocalAxlPeerId());
+  }, []);
+
+  useEffect(() => {
+    if (backend.status !== "online") return;
+    let cancelled = false;
+    void getAxlStatus()
+      .then((s) => {
+        if (cancelled || !s.peerId?.trim()) return;
+        setStoredLocalAxlPeerId(s.peerId.trim());
+        setLocalAxlPeerStored(s.peerId.trim());
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -526,11 +572,29 @@ export function SailOperatorPanel() {
 
       setIdentityRegisterResult(result);
       setMonEns(result.ensName);
+      if (identityAxlPeerId.trim()) {
+        setTrackedAxlEntries(
+          upsertTrackedAxlEntry({
+            ens: result.ensName,
+            axlPeerId: identityAxlPeerId.trim(),
+            source: "ens_subname",
+          }),
+        );
+      }
     } catch (error) {
       setIdentityRegisterError(friendlyError((error as Error).message ?? String(error)));
     } finally {
       setIdentityRegisterBusy(false);
     }
+  }
+
+  function handleManualTrackPeer() {
+    const ens = manualTrackEns.trim();
+    const peer = manualTrackPeer.trim();
+    if (!ens || !peer) return;
+    setTrackedAxlEntries(upsertTrackedAxlEntry({ ens, axlPeerId: peer, source: "manual" }));
+    setManualTrackEns("");
+    setManualTrackPeer("");
   }
 
   async function handleRefreshMesh() {
@@ -540,6 +604,10 @@ export function SailOperatorPanel() {
     try {
       const result = await getAxlStatus();
       setMeshTopology(result);
+      if (result.peerId?.trim()) {
+        setStoredLocalAxlPeerId(result.peerId.trim());
+        setLocalAxlPeerStored(result.peerId.trim());
+      }
       if (result.peers?.length && !meshSendTo) {
         setMeshSendTo(result.peers[0].peerId);
       }
@@ -593,11 +661,13 @@ export function SailOperatorPanel() {
     setRevealInboxError(null);
     try {
       const result = await receiveAxlMessages();
-      const filtered = result.messages.filter((m) => isRevealInboxMessage(m.message));
+      setRecvPollStats(result.recvPoll ?? null);
+      const filtered = result.messages.filter((m) => isRevealInboxMessage(m.message, m.topic));
       setRevealInbox((prev) => mergeRevealInbox(prev, filtered));
     } catch (error) {
       setRevealInboxError(friendlyError((error as Error).message ?? String(error)));
     } finally {
+      setRevealLastPollAt(Date.now());
       setRevealInboxBusy(false);
     }
   }, []);
@@ -652,6 +722,16 @@ export function SailOperatorPanel() {
       if (!discoverEns.trim()) throw new Error("ENS name required");
       const result = await discoverAgent(discoverEns.trim());
       setDiscoveredAgent(result);
+      const pid = result.records?.axl_peer_id?.trim();
+      if (pid) {
+        setTrackedAxlEntries(
+          upsertTrackedAxlEntry({
+            ens: result.ensName,
+            axlPeerId: pid,
+            source: "discover",
+          }),
+        );
+      }
     } catch (error) {
       setDiscoverError(friendlyError((error as Error).message ?? String(error)));
     } finally {
@@ -705,15 +785,15 @@ export function SailOperatorPanel() {
     return () => clearInterval(id);
   }, [primary, backend.status]);
 
-  // Poll AXL for auditor SEAL messages when Reveal inbox is open
+  // Poll AXL for auditor SEAL messages whenever the API is up — not only on the Reveal tab,
+  // otherwise messages never dequeue if the operator stayed on Register / Pipeline / Mesh.
   useEffect(() => {
-    if (primary !== "reveal") return;
     if (backend.status !== "online") return;
 
     void handlePollRevealInbox();
     const id = setInterval(() => void handlePollRevealInbox(), 8000);
     return () => clearInterval(id);
-  }, [primary, backend.status, handlePollRevealInbox]);
+  }, [backend.status, handlePollRevealInbox]);
 
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
@@ -741,6 +821,11 @@ export function SailOperatorPanel() {
             </button>
             <button type="button" className={primaryCls("reveal")} onClick={() => setPrimary("reveal")}>
               Reveal
+              {pendingFormalAuditRequests.length > 0 ? (
+                <span className="ml-1.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white">
+                  {pendingFormalAuditRequests.length}
+                </span>
+              ) : null}
             </button>
             <button type="button" className={primaryCls("mesh")} onClick={() => setPrimary("mesh")}>
               Mesh
@@ -1320,11 +1405,121 @@ export function SailOperatorPanel() {
 
         {primary === "reveal" && (
           <div className="space-y-4">
-            <p className="text-xs text-neutral-500">
-              <strong className="font-medium text-neutral-700">Formal handshake:</strong> auditors send a structured audit request over AXL; you respond with Accept or Deny (same transport). Other rows list all matching SEAL traffic (reveal submissions, legacy denies).
-              Wire format: <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[11px]">audit-message.ts</code>, topic{" "}
-              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[11px]">{SEAL_AX_TOPIC}</code>.
-            </p>
+ 
+        
+            <div className="rounded border border-[#05058a]/15 bg-[#f8f9fc] px-3 py-3 text-[11px]">
+              <p className="font-semibold text-[#05058a]">Tracked axl_peer_id</p>
+              <p className="mt-1 text-neutral-600">
+                Saved when you publish a subname with <code className="font-mono text-[10px]">axl_peer_id</code>, discover an agent in Mesh, or add a row below. Compare each ENS row to{" "}
+                <strong className="font-medium text-neutral-800">this node</strong> — if it does not match, auditors addressing ENS still send to the wrong mesh identity for{" "}
+                <em className="font-medium">this</em> API&apos;s inbox.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <div className="rounded border border-white bg-white/80 px-2 py-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">This API / recv node</p>
+                  <p className="mt-0.5 break-all font-mono text-[10px] text-neutral-800">
+                    {localAxlPeerStored ?? "—"}
+                  </p>
+                </div>
+                <div className="rounded border border-white bg-white/80 px-2 py-1.5">
+                  <p className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">Last inbox poll</p>
+                  <p className="mt-0.5 text-[10px] text-neutral-700">
+                    {revealLastPollAt ? new Date(revealLastPollAt).toLocaleString() : "Not yet"}
+                  </p>
+                </div>
+              </div>
+              {recvPollStats ? (
+                <div className="mt-2 rounded border border-neutral-200 bg-white px-2 py-2 text-[10px] leading-snug text-neutral-700">
+                  <p className="font-semibold text-neutral-800">AXL bridge inbox (this backend)</p>
+                  <p className="mt-1">
+                    Messages returned to the app so far:{" "}
+                    <strong className="text-neutral-900">{recvPollStats.totalMessagesReturned}</strong> · Last batch:{" "}
+                    <strong>{recvPollStats.lastBatchMessages}</strong> (bridge GET /recv calls in that batch:{" "}
+                    {recvPollStats.lastBridgeGets}) · Empty batches: {recvPollStats.emptyBatches}
+                  </p>
+                  {recvPollStats.totalMessagesReturned === 0 && recvPollStats.apiRecvCalls >= 2 ? (
+                    <p className="mt-2 border-t border-amber-200/80 pt-2 text-amber-950">
+                      The mesh inbox tied to this API is still empty. ENS ↔ peer &quot;Matches node&quot; only checks text vs{" "}
+                      <code className="rounded bg-amber-50 px-1 font-mono text-[9px]">/api/axl/status</code> — if the auditor UI uses a{" "}
+                      <em>different</em> API host than this dashboard, their send never reaches this recv queue. Align{" "}
+                      <code className="rounded bg-amber-50 px-1 font-mono text-[9px]">NEXT_PUBLIC_SAIL_API_URL</code> /{" "}
+                      <code className="rounded bg-amber-50 px-1 font-mono text-[9px]">SAIL_API_PROXY_TARGET</code> on both machines. Different clouds/NAT can also block mesh delivery even when ENS is correct.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {trackedAxlEntries.length > 0 ? (
+                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto border border-neutral-200/80 bg-white p-2">
+                  {trackedAxlEntries.map((e) => {
+                    const localNode = localAxlPeerStored;
+                    const match =
+                      typeof localNode === "string" &&
+                      localNode.length > 0 &&
+                      peerIdsMatch(e.axlPeerId, localNode);
+                    return (
+                      <li
+                        key={`${e.ens}-${e.updatedAt}`}
+                        className="flex flex-wrap items-end justify-between gap-x-2 gap-y-1 border-b border-neutral-100 pb-1 text-[10px] last:border-0 last:pb-0"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium text-neutral-800">{e.ens}</span>
+                          <span className="ml-2 text-neutral-400">({e.source})</span>
+                          <p className="break-all font-mono text-[9px] text-neutral-500">{shortPeer(e.axlPeerId)}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span
+                            className={
+                              match
+                                ? "rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-900"
+                                : "rounded bg-amber-100 px-1.5 py-0.5 text-amber-950"
+                            }
+                          >
+                            {match ? "Matches node" : "≠ node"}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-[10px] text-red-600 underline"
+                            onClick={() => setTrackedAxlEntries(removeTrackedAxlEntry(e.ens))}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="mt-2 text-[10px] text-neutral-500">No rows saved yet — register identity or discover an agent.</p>
+              )}
+              <div className="mt-2 flex flex-col gap-2 border-t border-neutral-200/80 pt-2 sm:flex-row sm:items-end">
+                <label className="min-w-0 flex-1 text-[10px] text-neutral-500">
+                  ENS
+                  <input
+                    className="mt-0.5 w-full rounded border border-neutral-300 px-2 py-1 font-mono text-[10px]"
+                    placeholder="agent.sail.eth"
+                    value={manualTrackEns}
+                    onChange={(ev) => setManualTrackEns(ev.target.value)}
+                  />
+                </label>
+                <label className="min-w-0 flex-[2] text-[10px] text-neutral-500">
+                  axl_peer_id
+                  <input
+                    className="mt-0.5 w-full rounded border border-neutral-300 px-2 py-1 font-mono text-[10px]"
+                    placeholder="12D3KooW…"
+                    value={manualTrackPeer}
+                    onChange={(ev) => setManualTrackPeer(ev.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleManualTrackPeer}
+                  disabled={!manualTrackEns.trim() || !manualTrackPeer.trim()}
+                  className="shrink-0 rounded border border-[#05058a] px-3 py-1.5 text-[10px] font-medium text-[#05058a] disabled:opacity-40"
+                >
+                  Save pair
+                </button>
+              </div>
+            </div>
 
             {pendingFormalAuditRequests.length > 0 ? (
               <div className="space-y-3 rounded border border-[#05058a]/25 bg-[#05058a]/[0.03] p-4">
@@ -1332,13 +1527,22 @@ export function SailOperatorPanel() {
                   Pending audit requests
                 </p>
                 <ul className="space-y-3">
-                  {pendingFormalAuditRequests.map((row) => (
+                  {pendingFormalAuditRequests.map((row) => {
+                    const senderTrackedEns = trackedEnsForSender(row.from, trackedAxlEntries);
+                    return (
                     <li
                       key={`${row.parsed.requestId}:${row.from}`}
                       className="rounded border border-neutral-200 bg-white p-4 text-xs shadow-sm"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-2">
-                        <span className="font-mono text-[11px] text-[#05058a]">From {shortPeer(row.from)}</span>
+                        <span className="font-mono text-[11px] text-[#05058a]">
+                          From {shortPeer(row.from)}
+                          {senderTrackedEns ? (
+                            <span className="ml-2 rounded bg-neutral-100 px-1.5 py-0.5 text-[10px] font-normal text-neutral-700">
+                              tracked: {senderTrackedEns}
+                            </span>
+                          ) : null}
+                        </span>
                         <time className="text-[11px] text-neutral-400" dateTime={new Date(row.timestamp).toISOString()}>
                           {new Date(row.timestamp).toLocaleString()}
                         </time>
@@ -1387,7 +1591,8 @@ export function SailOperatorPanel() {
                         {row.message}
                       </pre>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}
@@ -1414,7 +1619,7 @@ export function SailOperatorPanel() {
                 Clear list
               </button>
               <span className="text-xs text-neutral-400">
-                Auto-refreshes every 8s while this tab is open.
+                Auto-refreshes every 8s while the API is online (any workspace tab).
               </span>
             </div>
             {revealInboxError ? (
@@ -1430,13 +1635,22 @@ export function SailOperatorPanel() {
               </p>
             ) : (
               <ul className="space-y-3">
-                {revealInbox.map((row) => (
+                {revealInbox.map((row) => {
+                  const inboxTrackedEns = trackedEnsForSender(row.from, trackedAxlEntries);
+                  return (
                   <li
                     key={`${row.timestamp}-${row.from}-${row.message.slice(0, 48)}`}
                     className="rounded border border-neutral-200 bg-white p-4 text-xs shadow-sm"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-2">
-                      <span className="font-mono text-[11px] text-[#05058a]">{shortPeer(row.from)}</span>
+                      <span className="font-mono text-[11px] text-[#05058a]">
+                        {shortPeer(row.from)}
+                        {inboxTrackedEns ? (
+                          <span className="ml-2 rounded bg-neutral-100 px-1.5 text-[10px] text-neutral-700">
+                            {inboxTrackedEns}
+                          </span>
+                        ) : null}
+                      </span>
                       <time className="text-[11px] text-neutral-400" dateTime={new Date(row.timestamp).toISOString()}>
                         {new Date(row.timestamp).toLocaleString()}
                       </time>
@@ -1450,7 +1664,8 @@ export function SailOperatorPanel() {
                       {row.message}
                     </pre>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

@@ -15,7 +15,8 @@ export const axlRoutes = Router();
 axlRoutes.get("/status", async (_req, res) => {
   try {
     const alive = await axl.isAlive();
-    if (!alive) return res.json({ online: false });
+    const recvPoll = axl.getRecvPollStats();
+    if (!alive) return res.json({ online: false, recvPoll });
     const topology = await axl.getTopology();
     res.json({
       online: true,
@@ -23,6 +24,7 @@ axlRoutes.get("/status", async (_req, res) => {
       address: topology.ipv6,
       peers: topology.peers,
       tree: topology.tree,
+      recvPoll,
     });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -46,7 +48,7 @@ axlRoutes.get("/recv", async (req, res) => {
   try {
     const since = req.query.since ? Number(req.query.since) : undefined;
     const messages = await axl.receiveMessages(since);
-    res.json({ messages });
+    res.json({ messages, recvPoll: axl.getRecvPollStats() });
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }

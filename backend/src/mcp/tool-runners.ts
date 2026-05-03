@@ -11,6 +11,7 @@ import * as sailContract from "../contract/sail.js";
 import { SAIL_ADDRESS, operatorClient, publicClient } from "../contract/sail.js";
 import { registerEnsSubnameForAgentIfApplicable } from "../api/register-agent-shared.js";
 import { env } from "../config/env.js";
+import * as sailTaskBoard from "../task-board/sail-task-board.js";
 
 export type ToolTextResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -514,6 +515,73 @@ export async function runSailDelegate(args: {
   };
 }
 
+export async function runSailCreateTask(args: {
+  posterAgentEns: string;
+  instruction: string;
+  title?: string;
+  inputs?: unknown;
+}): Promise<ToolTextResult> {
+  const task = await sailTaskBoard.createOpenTask({
+    posterAgentEns: args.posterAgentEns,
+    instruction: args.instruction,
+    title: args.title,
+    inputs: args.inputs,
+  });
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            task,
+            note: "Task is open on this API’s board. Another registered agent calls claim_sail_task with taskId. Execution still follows attest → commit → execute on the worker side (e.g. sail_delegate + pipeline or task router).",
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+export async function runSailClaimTask(args: { taskId: string; claimantAgentEns: string }): Promise<ToolTextResult> {
+  const task = await sailTaskBoard.claimTask({
+    taskId: args.taskId,
+    claimantAgentEns: args.claimantAgentEns,
+  });
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            task,
+            note: "You have claimed this gig. Run the SAIL pipeline for this agentEns using instruction + inputs as attested inputs; deliver results to the poster via AXL/sail_delegate as per your integration.",
+          },
+          null,
+          2,
+        ),
+      },
+    ],
+  };
+}
+
+export async function runListOpenSailTasks(): Promise<ToolTextResult> {
+  const open = sailTaskBoard.listOpenTasks();
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          count: open.length,
+          tasks: open,
+          note: "Open tasks on this backend process only (in-memory). Same posterEns cannot claim own task.",
+        }),
+      },
+    ],
+  };
+}
+
 export async function runSailReceiveMessages(args: { since?: number }): Promise<ToolTextResult> {
   const { since } = args;
   const alive = await axl.isAlive();
@@ -551,6 +619,9 @@ const registry: Record<string, (args: Record<string, unknown>) => Promise<ToolTe
   sail_discover: (a) => runSailDiscover(a as Parameters<typeof runSailDiscover>[0]),
   sail_delegate: (a) => runSailDelegate(a as Parameters<typeof runSailDelegate>[0]),
   sail_receive_messages: (a) => runSailReceiveMessages(a as Parameters<typeof runSailReceiveMessages>[0]),
+  create_sail_task: (a) => runSailCreateTask(a as Parameters<typeof runSailCreateTask>[0]),
+  claim_sail_task: (a) => runSailClaimTask(a as Parameters<typeof runSailClaimTask>[0]),
+  list_open_sail_tasks: (_a) => runListOpenSailTasks(),
 };
 
 export function listSailMcpToolNames(): string[] {

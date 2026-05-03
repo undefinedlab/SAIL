@@ -9,6 +9,7 @@ import * as pipeline from "./pipeline.js";
 import * as contract from "../contract/sail.js";
 import * as compute from "../../0g/compute.js";
 import { registerEnsSubnameForAgentIfApplicable } from "./register-agent-shared.js";
+import * as sailTaskBoard from "../task-board/sail-task-board.js";
 
 export const api = Router();
 
@@ -321,6 +322,34 @@ api.get("/reveal/:cid", async (req, res) => {
   try {
     const blob = await pipeline.getSealedBlob(req.params.cid);
     res.json(blob);
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+// -------------------------------------------------------------------------
+// Agent task board (in-memory; same store as create_sail_task / claim_sail_task MCP)
+// -------------------------------------------------------------------------
+
+api.get("/agent-tasks/open", (_req, res) => {
+  try {
+    res.json(jsonSafe({ tasks: sailTaskBoard.listOpenTasks() }));
+  } catch (err) {
+    res.status(500).json({ error: contractError(err) });
+  }
+});
+
+api.get("/agent-tasks/:id", (req, res) => {
+  try {
+    const id = req.params.id?.trim();
+    if (!id) {
+      return res.status(400).json({ error: "id required" });
+    }
+    const task = sailTaskBoard.getTask(id);
+    if (!task) {
+      return res.status(404).json({ error: "task not found" });
+    }
+    res.json(jsonSafe({ task }));
   } catch (err) {
     res.status(500).json({ error: contractError(err) });
   }

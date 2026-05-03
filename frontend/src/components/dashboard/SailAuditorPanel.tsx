@@ -15,6 +15,7 @@ import {
   parseAuditResponseMessage,
 } from "@/lib/audit-message";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
+import { sailApiLabel } from "@/lib/wagmi-config";
 import { IntegrationStatusCards } from "@/components/dashboard/IntegrationStatusCards";
 
 type RequestMode = "ens" | "commitment";
@@ -251,6 +252,11 @@ export function SailAuditorPanel() {
             ).
           </p>
         ) : null}
+        <p className="rounded border border-[#05058a]/20 bg-[#f4f6ff] px-3 py-2 text-xs text-[#0a1857]">
+          <strong className="font-medium">Same backend URL as the operator:</strong> Send uses{" "}
+          <code className="rounded bg-white px-1 font-mono text-[10px]">{sailApiLabel}</code>. The operator&apos;s Reveal inbox polls{" "}
+          <code className="font-mono text-[10px]">GET /api/axl/recv</code> on that same host — if their Next proxy points elsewhere, their inbox is a different AXL queue than yours. Matching ENS to a peer id only proves DNS/state lines up; it does not route packets across two Railway vs localhost backends or through NAT.
+        </p>
       </div>
 
       <div className="pt-5">

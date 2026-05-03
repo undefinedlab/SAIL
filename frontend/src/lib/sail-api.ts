@@ -120,6 +120,27 @@ export async function getCommitment(hash: string) {
   }>(`/api/commitments/${encodeURIComponent(hash.trim())}`);
 }
 
+/** In-memory agent task board (same store as `create_sail_task` / `claim_sail_task` MCP). */
+export type SailBoardTask = {
+  id: string;
+  posterAgentEns: string;
+  title: string;
+  instruction: string;
+  inputs: unknown;
+  createdAt: number;
+  status: "open" | "claimed" | "cancelled";
+  claimedByAgentEns?: string;
+  claimedAt?: number;
+};
+
+export async function getOpenAgentTasks() {
+  return jsonRequest<{ tasks: SailBoardTask[] }>("/api/agent-tasks/open");
+}
+
+export async function getAgentTaskById(id: string) {
+  return jsonRequest<{ task: SailBoardTask }>(`/api/agent-tasks/${encodeURIComponent(id.trim())}`);
+}
+
 export async function getComputeProviders(modelFilter?: string) {
   const qs = modelFilter ? `?model=${encodeURIComponent(modelFilter)}` : "";
   return jsonRequest<{
@@ -198,12 +219,24 @@ export async function registerEnsSubname(input: {
   });
 }
 
+/** Mirrors backend `gensyn/client.ts` recv counters — proves whether /recv batches ever see mail. */
+export type RecvPollStats = {
+  apiRecvCalls: number;
+  lastApiRecvAt: string | null;
+  lastBatchMessages: number;
+  lastBridgeGets: number;
+  totalMessagesReturned: number;
+  emptyBatches: number;
+};
+
 export async function getAxlStatus() {
   return jsonRequest<{
     online: boolean;
     peerId?: string;
     address?: string;
     peers?: Array<{ peerId: string; address: string }>;
+    tree?: unknown;
+    recvPoll?: RecvPollStats;
   }>("/api/axl/status");
 }
 
@@ -230,6 +263,7 @@ export async function receiveAxlMessages(since?: number) {
       topic?: string;
       timestamp: number;
     }>;
+    recvPoll?: RecvPollStats;
   }>(`/api/axl/recv${qs}`);
 }
 

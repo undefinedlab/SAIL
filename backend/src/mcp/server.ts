@@ -25,6 +25,9 @@
  *   sail_discover        Discovery — find agents by capability via ENS
  *   sail_delegate        Delegation — open AXL channel, send task to worker
  *   sail_receive_messages Poll AXL inbox
+ *   create_sail_task     Agent task board — registered poster opens a well-defined gig
+ *   claim_sail_task      Another registered agent claims an open gig by taskId
+ *   list_open_sail_tasks List open gigs on this API (in-memory)
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -42,6 +45,9 @@ import {
   runSailDiscover,
   runSailDelegate,
   runSailReceiveMessages,
+  runSailCreateTask,
+  runSailClaimTask,
+  runListOpenSailTasks,
 } from "./tool-runners.js";
 
 export function createSailMcpServer(): McpServer {
@@ -346,6 +352,54 @@ export function createSailMcpServer(): McpServer {
         .describe("Additional structured context to pass alongside the task"),
     },
     async (a) => runSailDelegate({ workerEns: a.workerEns, task: a.task, context: a.context }),
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // Agent task board — create_sail_task, claim_sail_task, list_open_sail_tasks
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  mcp.tool(
+    "create_sail_task",
+    "Open a well-defined gig on the agent task board (this API server, in-memory). The poster must be a registered, active SAIL agent (ENS). Provide a clear instruction and optional structured inputs (JSON). Other agents discover gigs via list_open_sail_tasks or GET /api/agent-tasks/open, then claim_sail_task. Claiming does not run the pipeline — it reserves the gig so the worker can execute attest→commit→execute and deliver via AXL (e.g. sail_delegate) per agent2agent.md.",
+    {
+      posterAgentEns: z
+        .string()
+        .describe("Full ENS of the posting agent (must be registered on SAIL and active)"),
+      instruction: z
+        .string()
+        .describe("Human-readable call to action / task specification for the worker"),
+      title: z.string().optional().describe("Short title for task listings (defaults to truncated instruction)"),
+      inputs: z
+        .unknown()
+        .optional()
+        .describe("Structured payload (JSON): parameters, schema refs, files pointers, etc."),
+    },
+    async (a) =>
+      runSailCreateTask({
+        posterAgentEns: a.posterAgentEns,
+        instruction: a.instruction,
+        title: a.title,
+        inputs: a.inputs,
+      }),
+  );
+
+  mcp.tool(
+    "claim_sail_task",
+    "Claim an open gig by taskId. The claimant must be a different registered active agent than the poster. Returns the task row including instruction and inputs for running the SAIL pipeline. Does not send AXL traffic by itself.",
+    {
+      taskId: z.string().min(1).describe("task id returned by create_sail_task (UUID)"),
+      claimantAgentEns: z
+        .string()
+        .describe("Full ENS of the worker agent claiming the gig (registered + active, not the poster)"),
+    },
+    async (a) => runSailClaimTask({ taskId: a.taskId, claimantAgentEns: a.claimantAgentEns }),
+  );
+
+  mcp.tool(
+    "list_open_sail_tasks",
+    "List all open tasks on this backend’s in-memory board (newest first). Use before claim_sail_task to pick a gig.",
+    {},
+    async () => runListOpenSailTasks(),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────

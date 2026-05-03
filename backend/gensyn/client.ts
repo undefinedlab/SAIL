@@ -18,6 +18,29 @@ const MAX_RECV_BATCH = 50;
 const SEND_TIMEOUT_MS = 45_000;
 const RECV_SINGLE_TIMEOUT_MS = 12_000;
 
+/** In-process stats for `/api/axl/recv` — confirms whether the bridge ever yields mail. */
+export type RecvPollStats = {
+  apiRecvCalls: number;
+  lastApiRecvAt: string | null;
+  lastBatchMessages: number;
+  lastBridgeGets: number;
+  totalMessagesReturned: number;
+  emptyBatches: number;
+};
+
+let recvPollStats: RecvPollStats = {
+  apiRecvCalls: 0,
+  lastApiRecvAt: null,
+  lastBatchMessages: 0,
+  lastBridgeGets: 0,
+  totalMessagesReturned: 0,
+  emptyBatches: 0,
+};
+
+export function getRecvPollStats(): RecvPollStats {
+  return { ...recvPollStats };
+}
+
 type RawTopology = {
   our_public_key: string;
   our_ipv6: string;
@@ -204,8 +227,10 @@ function isAbortLike(err: unknown): boolean {
  */
 export async function receiveMessages(since?: number): Promise<ReceivedMessage[]> {
   const messages: ReceivedMessage[] = [];
+  let bridgeGets = 0;
 
   for (let i = 0; i < MAX_RECV_BATCH; i += 1) {
+    bridgeGets += 1;
     let res: Response;
     try {
       res = await fetch(`${BASE}/recv`, { signal: AbortSignal.timeout(RECV_SINGLE_TIMEOUT_MS) });
@@ -234,6 +259,13 @@ export async function receiveMessages(since?: number): Promise<ReceivedMessage[]
       });
     }
   }
+
+  recvPollStats.apiRecvCalls += 1;
+  recvPollStats.lastApiRecvAt = new Date().toISOString();
+  recvPollStats.lastBatchMessages = messages.length;
+  recvPollStats.lastBridgeGets = bridgeGets;
+  recvPollStats.totalMessagesReturned += messages.length;
+  if (messages.length === 0) recvPollStats.emptyBatches += 1;
 
   return messages;
 }
