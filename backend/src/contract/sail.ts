@@ -10,6 +10,7 @@ import {
   createPublicClient,
   createWalletClient,
   decodeEventLog,
+  decodeFunctionData,
   getAbiItem,
   getAddress,
   http,
@@ -97,6 +98,44 @@ const commitmentPostedEvent = getAbiItem({
   abi: SAIL_ABI,
   name: "CommitmentPosted",
 });
+
+/**
+ * Resolve the agent ENS that posted this commitment by locating CommitmentPosted and
+ * decoding `commit()` calldata (indexed `string ens` in the event is not recoverable from topics alone).
+ */
+export async function resolveEnsFromCommitmentHash(commitmentHash: Hex): Promise<string> {
+  const logs = await publicClient.getLogs({
+    address: SAIL_ADDRESS,
+    event: commitmentPostedEvent,
+    args: { commitmentHash },
+    fromBlock: 0n,
+    toBlock: "latest",
+  });
+  if (logs.length === 0) {
+    throw new Error("No CommitmentPosted event for this commitment hash");
+  }
+  const txHash = logs[0].transactionHash;
+  const tx = await publicClient.getTransaction({ hash: txHash });
+  if (!tx?.input) {
+    throw new Error("Could not load transaction for commitment");
+  }
+  const to = tx.to ? getAddress(tx.to) : null;
+  if (!to || to !== getAddress(SAIL_ADDRESS)) {
+    throw new Error("Commitment was not posted via direct SAIL contract call");
+  }
+  const decoded = decodeFunctionData({
+    abi: SAIL_ABI,
+    data: tx.input,
+  });
+  if (decoded.functionName !== "commit") {
+    throw new Error(`Expected commit() call, got ${decoded.functionName}`);
+  }
+  const ens = decoded.args[0] as string;
+  if (!ens?.trim()) {
+    throw new Error("Could not decode agent ENS from commit transaction");
+  }
+  return ens.trim();
+}
 
 /** All CommitmentPosted logs for this ENS (includes tx hash per post). */
 export async function getCommitmentPostedLogsForEns(ens: string) {

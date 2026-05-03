@@ -14,6 +14,9 @@ import { env } from "../src/config/env.js";
 
 const BASE = env.axl.bridgeUrl.replace(/\/$/, "");
 const MAX_RECV_BATCH = 50;
+/** Avoid hanging forever when the AXL bridge or route to the peer is slow / unreachable. */
+const SEND_TIMEOUT_MS = 45_000;
+const RECV_SINGLE_TIMEOUT_MS = 12_000;
 
 type RawTopology = {
   our_public_key: string;
@@ -129,6 +132,7 @@ async function axlSendRaw(path: string, body: Uint8Array, headers: HeadersInit):
     method: "POST",
     headers,
     body: Buffer.from(body),
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   });
 }
 
@@ -170,14 +174,28 @@ export async function getPeerId(): Promise<string> {
  * Transport is raw bytes; we keep topic/timestamp inside a tiny JSON envelope.
  */
 export async function sendMessage(payload: SendPayload): Promise<void> {
-  const res = await axlSendRaw("/send", encodeEnvelope(payload), {
-    "Content-Type": "application/octet-stream",
-    "X-Destination-Peer-Id": payload.to,
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`AXL POST /send -> ${res.status}: ${body}`);
+  try {
+    const res = await axlSendRaw("/send", encodeEnvelope(payload), {
+      "Content-Type": "application/octet-stream",
+      "X-Destination-Peer-Id": payload.to,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`AXL POST /send -> ${res.status}: ${body}`);
+    }
+  } catch (e) {
+    if (isAbortLike(e)) {
+      throw new Error(
+        `AXL POST /send timed out after ${SEND_TIMEOUT_MS / 1000}s — bridge unreachable or peer not responding. Check AXL bridge URL, that the AXL node is running, and the destination peer id.`,
+      );
+    }
+    throw e;
   }
+}
+
+function isAbortLike(err: unknown): boolean {
+  const name = err && typeof err === "object" && "name" in err ? String((err as { name?: string }).name) : "";
+  return name === "AbortError" || name === "TimeoutError";
 }
 
 /**
@@ -188,7 +206,13 @@ export async function receiveMessages(since?: number): Promise<ReceivedMessage[]
   const messages: ReceivedMessage[] = [];
 
   for (let i = 0; i < MAX_RECV_BATCH; i += 1) {
-    const res = await fetch(`${BASE}/recv`);
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/recv`, { signal: AbortSignal.timeout(RECV_SINGLE_TIMEOUT_MS) });
+    } catch (e) {
+      if (isAbortLike(e)) break;
+      throw e;
+    }
     if (res.status === 204) {
       break;
     }

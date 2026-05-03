@@ -10,6 +10,16 @@ function url(path: string): string {
   return sailApiBase ? `${sailApiBase}${p}` : p;
 }
 
+/** Browser + Node 18+; fallback for older runtimes. */
+function requestTimeoutSignal(ms: number): AbortSignal {
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(ms);
+  }
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
 async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url(path), {
     ...init,
@@ -105,7 +115,9 @@ export async function getCommitment(hash: string) {
       timestamp: string;
       executed: boolean;
     };
-  }>(`/api/commitments/${hash}`);
+    /** Agent ENS from the original commit() tx; null if not derivable. */
+    resolvedEns: string | null;
+  }>(`/api/commitments/${encodeURIComponent(hash.trim())}`);
 }
 
 export async function getComputeProviders(modelFilter?: string) {
@@ -200,9 +212,12 @@ export async function sendAxlMessage(input: {
   message: string;
   topic?: string;
 }) {
+  /** Longer than backend AXL send timeout so the client sees the server error body first. */
+  const SEND_WAIT_MS = 70_000;
   return jsonRequest<{ sent: boolean }>("/api/axl/send", {
     method: "POST",
     body: JSON.stringify(input),
+    signal: requestTimeoutSignal(SEND_WAIT_MS),
   });
 }
 

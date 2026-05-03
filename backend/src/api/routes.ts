@@ -77,8 +77,15 @@ api.get("/agents/:ens", async (req, res) => {
 
 api.get("/commitments/:hash", async (req, res) => {
   try {
-    const commitment = await contract.getCommitment(req.params.hash as Hex);
-    res.json(jsonSafe({ commitment }));
+    const hash = req.params.hash.trim() as Hex;
+    const commitment = await contract.getCommitment(hash);
+    let resolvedEns: string | null = null;
+    try {
+      resolvedEns = await contract.resolveEnsFromCommitmentHash(hash);
+    } catch {
+      resolvedEns = null;
+    }
+    res.json(jsonSafe({ commitment, resolvedEns }));
   } catch (err) {
     res.status(500).json({ error: contractError(err) });
   }

@@ -7,6 +7,8 @@ export type ParsedAuditRequest = {
   auditor?: string;
   scope?: string;
   agentIdBytes32?: string;
+  /** When set, request targets this anchored commitment specifically. */
+  commitmentHash?: string;
 };
 
 export type ParsedAuditResponse = {
@@ -35,7 +37,7 @@ export function buildAuditRequestMessage(
   requestId: string,
   agentEns: string,
   auditorAddress: string,
-  options?: { scope?: string; agentIdBytes32?: string },
+  options?: { scope?: string; agentIdBytes32?: string; commitmentHash?: string },
 ): string {
   const lines = [
     "SEAL — Audit request",
@@ -47,6 +49,9 @@ export function buildAuditRequestMessage(
   ];
   if (options?.agentIdBytes32) {
     lines.push(`agentId: ${options.agentIdBytes32}`);
+  }
+  if (options?.commitmentHash?.trim()) {
+    lines.push(`commitmentHash: ${options.commitmentHash.trim()}`);
   }
   lines.push("", "I request an audit and consent to disclose this signed request to the operator.");
   return lines.join("\n");
@@ -90,6 +95,7 @@ export function parseAuditRequestMessage(body: string): ParsedAuditRequest | nul
     auditor: kv.auditor,
     scope: kv.scope,
     agentIdBytes32: kv.agentId,
+    commitmentHash: kv.commitmentHash,
   };
 }
 

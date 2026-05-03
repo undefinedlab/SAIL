@@ -1352,6 +1352,12 @@ export function SailOperatorPanel() {
                           <dt className="text-neutral-400">agentEns</dt>
                           <dd className="break-all font-mono">{row.parsed.agentEns}</dd>
                         </div>
+                        {row.parsed.commitmentHash ? (
+                          <div className="sm:col-span-2">
+                            <dt className="text-neutral-400">commitmentHash</dt>
+                            <dd className="break-all font-mono">{row.parsed.commitmentHash}</dd>
+                          </div>
+                        ) : null}
                         {row.parsed.auditor ? (
                           <div className="sm:col-span-2">
                             <dt className="text-neutral-400">auditor</dt>
