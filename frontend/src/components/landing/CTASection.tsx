@@ -22,10 +22,19 @@ export function CTASection() {
 {`{
   "mcpServers": {
     "sail": {
-      "command": "npx",
-      "args": ["-y", "@sailprotocol/mcp-server"]
+      "command": "npm",
+      "args": ["run", "mcp"],
+      "cwd": "$",
+      "env": {
+        "DOTENV_CONFIG_PATH": ".env.local"
+      }
+    },
+    "sail-production": {
+      "url": "https://content-essence-production-3635.up.railway.app/mcp"
     }
-  }
+  
+}
+
 }`}
                 </pre>
               </div>
@@ -36,10 +45,9 @@ export function CTASection() {
                   commit-before-execute checks.
                 </p>
                 <p className="mt-5 text-[12px] font-medium tracking-[-0.01em] text-[#05058a]/75">
-                  <span className="text-[#05058a]">sail.commit()</span>,{" "}
-                  <span className="text-[#05058a]">sail.execute()</span>,{" "}
-                  <span className="text-[#05058a]">sail.verify()</span>,{" "}
-                  <span className="text-[#05058a]">sail.audit()</span>
+                  <span className="text-[#05058a]">think_with_sail()</span>,{" "}
+                  <span className="text-[#05058a]">audit_with_sail()</span>,{" "}
+                  <span className="text-[#05058a]">delegate_with_sail()</span>
                 </p>
                 <p className="mt-6 text-[12px] font-medium uppercase tracking-[0.16em] text-[#05058a]/65">
                   Keep your flow. Add accountability.
