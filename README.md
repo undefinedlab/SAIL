@@ -627,8 +627,6 @@ SAIL is built on four protocol partners. Each has a dedicated integration guide:
 | **0G** | Decentralized storage for commitment blobs + sealed inference TEE for ZK-tier reasoning | [docs/partners/0g.md](docs/partners/0g.md) |
 | **ENS** | Human-readable agent identity — `*.sail.eth` subnames carrying tier, auditors, and AXL peer ID | [docs/partners/ens.md](docs/partners/ens.md) |
 | **Gensyn / AXL** | Encrypted P2P mesh for agent to agent task delegation and result delivery | [docs/partners/gensyn.md](docs/partners/gensyn.md) |
-| **Lit Protocol** | Threshold encryption — access conditions tied to `SAIL.isAuthorized()` onchain | [docs/partners/lit.md](docs/partners/lit.md) |
-
 ---
 
 <div align="center">
