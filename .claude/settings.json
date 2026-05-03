@@ -41,7 +41,9 @@
       "Bash(curl -s -X POST http://localhost:3001/api/commit -H 'Content-Type: application/json' -d '{\"agentEns\":\"0x17swarn.sail.eth\",\"inputHash\":\"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef\",\"decision\":\"test\",\"proposedAction\":\"test\"}')",
       "Bash(curl -s -X POST http://localhost:3000/api/commit -H 'Content-Type: application/json' -d '{\"agentEns\":\"0x17swarn.sail.eth\",\"inputHash\":\"0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef\",\"decision\":\"test\",\"proposedAction\":\"test\"}')",
       "Bash(curl -s http://localhost:3000/api/axl/recv)",
-      "Bash(curl -s -X POST http://localhost:3001/api/execute -H 'Content-Type: application/json' -d '{\"agentEns\":\"0x17swarn.sail.eth\",\"commitmentHash\":\"0xc0bcc1355982e92c7811b0505fc4f627996b925e4f060cb54a613c52da2a82e87\"}')"
+      "Bash(curl -s -X POST http://localhost:3001/api/execute -H 'Content-Type: application/json' -d '{\"agentEns\":\"0x17swarn.sail.eth\",\"commitmentHash\":\"0xc0bcc1355982e92c7811b0505fc4f627996b925e4f060cb54a613c52da2a82e87\"}')",
+      "Bash(curl -s -X POST https://api.chipotle.litprotocol.com/core/v1/lit_action -H 'X-Api-Key: Cdg0X/mt9ol+deH2n3SzFXth8pJ2j7tGOVrh2DcQEds=' -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s -X POST http://localhost:3001/api/execute -H 'Content-Type: application/json' -d '{\"agentEns\":\"0x17swarn.sail.eth\",\"commitmentHash\":\"0x4bcabd9a8d6c9b40f72eedf79d4cfc1a84fe7724a3c1d8a3a84bbb48469839e7\"}')"
     ]
   }
 }
