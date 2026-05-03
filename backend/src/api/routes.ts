@@ -86,7 +86,13 @@ api.get("/commitments/:hash", async (req, res) => {
 
 api.get("/audit/:hash", async (req, res) => {
   try {
-    const result = await pipeline.auditCommitment(req.params.hash as Hex);
+    const { ethers } = await import("ethers");
+    const raw = typeof req.query.auditor === "string" ? req.query.auditor.trim() : "";
+    const auditorAddress =
+      raw && ethers.isAddress(raw) ? (raw as `0x${string}`) : undefined;
+    const result = await pipeline.auditCommitment(req.params.hash as Hex, {
+      auditorAddress,
+    });
     res.json(jsonSafe(result));
   } catch (err) {
     res.status(500).json({ error: contractError(err) });

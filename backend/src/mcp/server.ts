@@ -56,7 +56,7 @@ export function createSailMcpServer(): McpServer {
 
   mcp.tool(
     "sail_register",
-    "Register on the SAIL contract (tier 0=optimistic, 1=ZK, 2=TEE; stakeEth; full ens name). All txs are signed with the server OPERATOR_PRIVATE_KEY — configure that key for local runs. If ens is a subdomain of the configured parent (e.g. myagent.sail.eth), also creates the ENS subname and writes sail_tier, sail_contract, auditors, plus optional ensExtraRecords (capabilities, axl_peer_id, …). Same behavior as POST /api/register. Use skipEns true for on-chain-only.",
+    "Register on the SAIL contract (tier 0=optimistic, 1=sealed inference via 0G — not SNARK ZK, 2=TEE; stakeEth; full ens name). All txs are signed with the server OPERATOR_PRIVATE_KEY — configure that key for local runs. If ens is a subdomain of the configured parent (e.g. myagent.sail.eth), also creates the ENS subname and writes sail_tier, sail_contract, auditors, plus optional ensExtraRecords (capabilities, axl_peer_id, …). Same behavior as POST /api/register. Use skipEns true for on-chain-only.",
     {
       ens: z
         .string()
@@ -67,7 +67,7 @@ export function createSailMcpServer(): McpServer {
         .min(0)
         .max(2)
         .optional()
-        .describe("Trust tier: 0 = optimistic, 1 = ZK, 2 = TEE (default 0). Written on-chain and in ENS sail_tier text record."),
+        .describe("Trust tier: 0 = optimistic, 1 = sealed inference (0G attestation), 2 = TEE (default 0). Written on-chain and in ENS sail_tier text record."),
       auditors: z
         .array(z.string())
         .min(1)
@@ -277,13 +277,23 @@ export function createSailMcpServer(): McpServer {
 
   mcp.tool(
     "sail_audit_commitment",
-    "Auditor tool: given a commitmentHash, load on-chain metadata + 0G sealed blob. If the blob used AES fallback (Lit unavailable), returns decrypted decision/proposedAction/inputHash and verifies keccak matches commitmentHash. Lit-encrypted blobs return ciphertext metadata only — decrypt in a Lit-capable client.",
+    "Auditor tool: given commitmentHash, fetch on-chain commitment + 0G blob, decrypt when possible (AES fallback key in blob, or Lit Chipotle when this server has LIT_CHIPOTLE_* — same PKP as encrypt), then verify keccak256(plaintext utf-8 JSON) === commitmentHash. Returns plaintext (decision, proposedAction, attestation, auditContext), hashVerified, and inputHash vs on-chain check. Optional auditorAddress enforces SAIL.isAuthorized on Chipotle decrypt.",
     {
       commitmentHash: z
         .string()
-        .describe("0x-prefixed commitmentHash from sail_commit or Etherscan"),
+        .describe("0x-prefixed commitmentHash from sail_commit, sail_think_with_sail, or sail_reason_with_sailplus"),
+      auditorAddress: z
+        .string()
+        .optional()
+        .describe(
+          "Optional Sepolia auditor 0x address — when decrypting via Chipotle, Lit Action checks isAuthorized(auditor, agentEns) before releasing plaintext.",
+        ),
     },
-    async (a) => runSailAuditCommitment({ commitmentHash: a.commitmentHash }),
+    async (a) =>
+      runSailAuditCommitment({
+        commitmentHash: a.commitmentHash,
+        auditorAddress: a.auditorAddress,
+      }),
   );
 
   // ─────────────────────────────────────────────────────────────────────────────

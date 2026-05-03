@@ -289,7 +289,7 @@ export function ZeroGComputePanel({ backendOnline }: { backendOnline: boolean })
               Run 0G Compute
             </h3>
             <p className="mt-1 text-xs leading-relaxed text-[#05058a]/68">
-              Route a prompt through the 0G Compute TEE. The response + attestation are embedded in the SAIL commitment blob for ZK-tier agents.
+              Route a prompt through 0G Compute. The response + attestation are embedded in the SAIL commitment blob for tier 1 (sealed inference) agents.
             </p>
           </div>
 

@@ -38,4 +38,11 @@ export const sailAbi = parseAbi([
 ]);
 
 export type SailTier = 0 | 1 | 2;
-export const TIER_LABELS = ["Optimistic", "ZK", "TEE"] as const;
+
+/** Short labels for UI (matches on-chain tier index). */
+export const TIER_LABELS = ["Optimistic", "Sealed inference", "TEE"] as const;
+
+/** Stored in ENS text record `sail_tier` for new registrations (`zk` kept for legacy names). */
+export function tierEnsSlug(tier: SailTier): "optimistic" | "sealed" | "tee" {
+  return tier === 0 ? "optimistic" : tier === 1 ? "sealed" : "tee";
+}

@@ -25,7 +25,7 @@ export async function registerEnsSubnameForAgentIfApplicable(options: {
   if (!subLabel) return null;
 
   const tierRecord: AgentTextRecords["sail_tier"] =
-    tier === 0 ? "optimistic" : tier === 1 ? "zk" : "tee";
+    tier === 0 ? "optimistic" : tier === 1 ? "sealed" : "tee";
   const records: AgentTextRecords = {
     sail_tier: tierRecord,
     sail_contract: contract.SAIL_ADDRESS,

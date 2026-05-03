@@ -1,16 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from "wagmi";
 import { keccak256, type Hex } from "viem";
-import { sailAbi } from "@/lib/sail-abi";
-import { fetchSealedBlob, getAgentCommitments } from "@/lib/sail-api";
+import { sailAbi, TIER_LABELS } from "@/lib/sail-abi";
+import {
+  discoverAgent,
+  fetchSealedBlob,
+  getAgentCommitments,
+  receiveAxlMessages,
+  sendAxlMessage,
+  type DiscoveredAgent,
+} from "@/lib/sail-api";
+import {
+  SEAL_AX_TOPIC,
+  buildAuditRequestMessage,
+  parseAuditResponseMessage,
+} from "@/lib/audit-message";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
 import { expectedChain, sailContractAddress } from "@/lib/wagmi-config";
 import { IntegrationStatusCards } from "@/components/dashboard/IntegrationStatusCards";
 import { TxLink } from "@/components/ui/TxLink";
 
-export type AuditorWorkspaceTab = "lookup" | "audit" | "slash";
+export type AuditorWorkspaceTab = "lookup" | "request" | "audit" | "slash";
+
+function shortPeer(peerId: string) {
+  return peerId.length > 24 ? `${peerId.slice(0, 14)}…${peerId.slice(-8)}` : peerId;
+}
+
+type FormalOutbound = {
+  requestId: string;
+  agentEns: string;
+  operatorPeer: string;
+  sentAt: number;
+  outcome?: "accepted" | "denied";
+};
 
 type AgentLedgerCommitment = {
   txHash: string;
@@ -43,7 +67,7 @@ type AuditResult = {
 
 export function SailAuditorPanel() {
   const [tab, setTab] = useState<AuditorWorkspaceTab>("lookup");
-  const { isConnected, chain } = useAccount();
+  const { isConnected, chain, address } = useAccount();
   const backend = useBackendStatus();
 
   const [lookupEns, setLookupEns] = useState("");
@@ -58,6 +82,14 @@ export function SailAuditorPanel() {
   const [auditBusy, setAuditBusy] = useState(false);
   const [auditResult, setAuditResult] = useState<AuditResult | null>(null);
   const [auditError, setAuditError] = useState<string | null>(null);
+
+  const [requestEns, setRequestEns] = useState("");
+  const [requestDiscover, setRequestDiscover] = useState<DiscoveredAgent | null>(null);
+  const [requestDiscoverBusy, setRequestDiscoverBusy] = useState(false);
+  const [requestDiscoverError, setRequestDiscoverError] = useState<string | null>(null);
+  const [requestSendBusy, setRequestSendBusy] = useState(false);
+  const [requestSendError, setRequestSendError] = useState<string | null>(null);
+  const [formalOutbound, setFormalOutbound] = useState<FormalOutbound[]>([]);
 
   const [slashEns, setSlashEns] = useState("");
   const {
@@ -102,6 +134,102 @@ export function SailAuditorPanel() {
     setAuditExpectedHash(row.commitmentHash);
     setTab("audit");
   }
+
+  async function handleRequestDiscover() {
+    setRequestDiscoverBusy(true);
+    setRequestDiscoverError(null);
+    setRequestDiscover(null);
+
+    try {
+      if (!requestEns.trim()) throw new Error("Agent ENS required");
+      const d = await discoverAgent(requestEns.trim());
+      setRequestDiscover(d);
+      if (!d.records?.axl_peer_id?.trim()) {
+        setRequestDiscoverError(
+          "No axl_peer_id on this ENS record — the operator must publish an AXL peer id for mesh delivery.",
+        );
+      }
+    } catch (error) {
+      setRequestDiscoverError((error as Error).message);
+    } finally {
+      setRequestDiscoverBusy(false);
+    }
+  }
+
+  async function handleSendFormalAuditRequest() {
+    setRequestSendBusy(true);
+    setRequestSendError(null);
+
+    try {
+      if (!address) throw new Error("Connect wallet — the request includes your auditor address.");
+      const peer = requestDiscover?.records?.axl_peer_id?.trim();
+      if (!peer) throw new Error("Discover the agent first and ensure axl_peer_id is present.");
+      const ens = requestEns.trim();
+      if (!ens) throw new Error("Agent ENS required");
+
+      const requestId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      const message = buildAuditRequestMessage(requestId, ens, address);
+      await sendAxlMessage({
+        to: peer,
+        topic: SEAL_AX_TOPIC,
+        message,
+      });
+
+      setFormalOutbound((prev) => [
+        {
+          requestId,
+          agentEns: ens,
+          operatorPeer: peer,
+          sentAt: Date.now(),
+        },
+        ...prev,
+      ]);
+    } catch (error) {
+      setRequestSendError((error as Error).message);
+    } finally {
+      setRequestSendBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab !== "request") return;
+    if (backend.status !== "online") return;
+
+    const tick = async () => {
+      try {
+        const { messages } = await receiveAxlMessages();
+        setFormalOutbound((prev) => {
+          const next = prev.map((row) => {
+            if (row.outcome) return row;
+            for (const m of messages) {
+              const r = parseAuditResponseMessage(m.message);
+              if (r && r.requestId === row.requestId) {
+                const outcome: FormalOutbound["outcome"] =
+                  r.kind === "accept" ? "accepted" : "denied";
+                return {
+                  ...row,
+                  outcome,
+                };
+              }
+            }
+            return row;
+          });
+          const changed = next.some((row, i) => row !== prev[i]);
+          return changed ? next : prev;
+        });
+      } catch {
+        /* ignore transport errors */
+      }
+    };
+
+    void tick();
+    const id = setInterval(() => void tick(), 6000);
+    return () => clearInterval(id);
+  }, [tab, backend.status]);
 
   async function handleAudit() {
     setAuditBusy(true);
@@ -161,6 +289,9 @@ export function SailAuditorPanel() {
           <nav className="flex shrink-0 flex-wrap items-center justify-end gap-2" aria-label="Auditor steps">
             <button type="button" className={tabCls("lookup")} onClick={() => setTab("lookup")}>
               Lookup
+            </button>
+            <button type="button" className={tabCls("request")} onClick={() => setTab("request")}>
+              Request
             </button>
             <button type="button" className={tabCls("audit")} onClick={() => setTab("audit")}>
               Audit
@@ -224,7 +355,12 @@ export function SailAuditorPanel() {
                       {lookupAgent.active ? "active" : "inactive"}
                     </span>
                   </span>
-                  <span>Tier: {lookupAgent.tier}</span>
+                  <span>
+                    Tier:{" "}
+                    {lookupAgent.tier >= 0 && lookupAgent.tier <= 2
+                      ? TIER_LABELS[lookupAgent.tier as 0 | 1 | 2]
+                      : lookupAgent.tier}
+                  </span>
                   <span>Commitments: {lookupAgent.commitmentCount}</span>
                   <span className="font-mono text-[10px] text-neutral-500">
                     {lookupAgent.wallet.slice(0, 10)}…{lookupAgent.wallet.slice(-6)}
@@ -291,6 +427,98 @@ export function SailAuditorPanel() {
             ) : lookupAgent && !lookupBusy ? (
               <p className="text-xs text-neutral-500">No CommitmentPosted events found for this ENS yet.</p>
             ) : null}
+            </div>
+          )}
+
+          {tab === "request" && (
+            <div className="space-y-4">
+              <p className="text-xs text-neutral-500">
+                Send a formal <strong className="font-medium text-neutral-700">SEAL — Audit request</strong> to the operator’s AXL peer (from ENS text record{" "}
+                <code className="rounded bg-neutral-100 px-1 font-mono text-[11px]">axl_peer_id</code>
+                ). The operator can Accept or Deny over the same channel (topic <code className="rounded bg-neutral-100 px-1 font-mono text-[11px]">{SEAL_AX_TOPIC}</code>
+                ). This does not replace on-chain authorization — it coordinates disclosure only.
+              </p>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  className="w-full min-w-0 flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                  placeholder="Agent ENS (e.g. myagent.sail.eth)"
+                  value={requestEns}
+                  onChange={(e) => setRequestEns(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void handleRequestDiscover()}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleRequestDiscover()}
+                  disabled={requestDiscoverBusy || backend.status !== "online"}
+                  className="shrink-0 rounded border border-[#05058a] px-4 py-2 text-sm text-[#05058a] disabled:opacity-40"
+                >
+                  {requestDiscoverBusy ? "Discovering…" : "Discover"}
+                </button>
+              </div>
+
+              {requestDiscoverError ? (
+                <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{requestDiscoverError}</p>
+              ) : null}
+
+              {requestDiscover?.records?.axl_peer_id ? (
+                <div className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs">
+                  <p className="font-medium text-[#05058a]">Operator AXL peer</p>
+                  <p className="mt-1 break-all font-mono text-[11px] text-neutral-700">{requestDiscover.records.axl_peer_id}</p>
+                  <p className="mt-1 text-[10px] text-neutral-500">{shortPeer(requestDiscover.records.axl_peer_id)}</p>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => void handleSendFormalAuditRequest()}
+                disabled={
+                  requestSendBusy ||
+                  backend.status !== "online" ||
+                  !requestDiscover?.records?.axl_peer_id?.trim() ||
+                  !requestEns.trim()
+                }
+                className="rounded bg-[#05058a] px-5 py-2 text-sm text-white disabled:opacity-40"
+              >
+                {requestSendBusy ? "Sending…" : "Send formal audit request"}
+              </button>
+              {!address ? (
+                <p className="text-xs text-amber-700">Connect your wallet so the wire message includes your auditor address.</p>
+              ) : null}
+
+              {requestSendError ? (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{requestSendError}</p>
+              ) : null}
+
+              {formalOutbound.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">Outbound requests</p>
+                  <ul className="space-y-2">
+                    {formalOutbound.map((row) => (
+                      <li key={row.requestId} className="rounded border border-neutral-200 bg-white px-3 py-2 text-[11px]">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-neutral-600">{row.agentEns}</span>
+                          {row.outcome ? (
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                row.outcome === "accepted"
+                                  ? "bg-emerald-100 text-emerald-800"
+                                  : "bg-red-100 text-red-800"
+                              }`}
+                            >
+                              {row.outcome === "accepted" ? "Accepted" : "Denied"}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-700">Awaiting operator…</span>
+                          )}
+                        </div>
+                        <p className="mt-1 break-all font-mono text-[10px] text-neutral-400">id: {row.requestId}</p>
+                        <p className="text-[10px] text-neutral-500">To peer: {shortPeer(row.operatorPeer)}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
           )}
 

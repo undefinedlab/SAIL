@@ -10,8 +10,8 @@ export default function OperatorDashboardPage() {
         <div className="mx-auto max-w-[1440px]">
           <ConsoleFrame
             eyebrow="Operator Path"
-            title="Your Sail Toolbox"
-            description="Register agents, run Pipeline, monitor on-chain state, extend with Identity and Agent to agent communication via Mesh."
+            title="Sailor's Toolbox"
+            description="Register Agents Identity, run Pipeline, Monitor on-chain state, run Agent-to-Agent communication."
           >
             <SailOperatorPanel />
           </ConsoleFrame>

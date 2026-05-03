@@ -356,8 +356,17 @@ export async function runSailExecute(args: {
   };
 }
 
-export async function runSailAuditCommitment(args: { commitmentHash: string }): Promise<ToolTextResult> {
-  const result = await pipeline.auditCommitment(args.commitmentHash as `0x${string}`);
+export async function runSailAuditCommitment(args: {
+  commitmentHash: string;
+  /** If set, Chipotle decrypt runs SAIL.isAuthorized(auditor, agentEns) inside Lit before release. */
+  auditorAddress?: string;
+}): Promise<ToolTextResult> {
+  const result = await pipeline.auditCommitment(args.commitmentHash as `0x${string}`, {
+    auditorAddress:
+      args.auditorAddress && isAddress(args.auditorAddress.trim())
+        ? (args.auditorAddress.trim() as Address)
+        : undefined,
+  });
   return {
     content: [
       {

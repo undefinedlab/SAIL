@@ -3,7 +3,7 @@
  *
  * Glues the six pipeline stages together:
  *   01 Attest  → SHA256(inputs)
- *   02 Reason  → optional 0G Compute sealed inference (ZK tier)
+ *   02 Reason  → optional 0G Compute sealed inference (tier 1)
  *   03 Commit  → Lit encrypt → 0G Storage upload → SAIL contract anchor
  *   04 Execute → SAIL contract gate (reverts if no commitment)
  *   05 Deliver → out of scope for v1
@@ -15,13 +15,16 @@ import { keccak256, toHex, type Hex } from "viem";
 import * as contract from "../contract/sail.js";
 import * as storage from "../../0g/storage.js";
 import * as compute from "../../0g/compute.js";
-import { decryptAesFallbackBlob, encryptCommitmentBlob } from "../lit/encrypt.js";
+import {
+  chipotleDecrypt,
+  decryptAesFallbackBlob,
+  encryptCommitmentBlob,
+} from "../lit/encrypt.js";
+import { env } from "../config/env.js";
+import type { Address } from "viem";
 
-export type Tier = "optimistic" | "zk" | "tee";
-
-function tierIndex(t: Tier): 0 | 1 | 2 {
-  return t === "optimistic" ? 0 : t === "zk" ? 1 : 2;
-}
+/** Semantic tier names (on-chain remains uint8 0..2). `zk` kept as legacy alias for tier 1. */
+export type Tier = "optimistic" | "zk" | "sealed" | "tee";
 
 function sha256(data: Uint8Array | string): Hex {
   const buf = typeof data === "string" ? Buffer.from(data, "utf-8") : Buffer.from(data);
@@ -47,7 +50,7 @@ export function attestInputs(inputs: unknown): AttestResult {
 }
 
 // -------------------------------------------------------------------------
-// Stage 02 — Reason (ZK tier)
+// Stage 02 — Reason (sealed inference / tier 1)
 // -------------------------------------------------------------------------
 
 export type ReasonResult = {
@@ -78,7 +81,7 @@ export type CommitInput = {
   inputHash: Hex;
   decision: string;
   proposedAction: string;
-  /** Optional sealed-inference attestation, embedded in the blob for ZK tier. */
+  /** Optional sealed-inference attestation, embedded in the blob for tier 1. */
   attestation?: string;
   /**
    * Optional verbatim audit payload (user prompt, tool traces, constraints) stored inside the
@@ -157,9 +160,10 @@ export async function execute(agentEns: string, commitmentHash: Hex): Promise<Ex
 export type EncryptedSealedBlob = {
   ciphertext: string;
   dataToEncryptHash: string;
-  accessConditions: unknown;
+  accessConditions: { agentEns?: string; contractAddress?: string } | unknown;
   /** Present for AES fallback blobs — allows server-side audit decrypt (demo path). */
   fallbackKey?: string;
+  encryptionMethod?: string;
 };
 
 /**
@@ -182,7 +186,7 @@ export type AuditCommitmentResult = {
     executed: boolean;
   };
   /** How plaintext was recovered, if at all */
-  decryptMode: "aes-fallback" | "lit-required" | "none";
+  decryptMode: "aes-fallback" | "chipotle" | "lit-required" | "none";
   /** Parsed commitment blob when decryptMode === "aes-fallback" */
   plaintext?: {
     inputHash: string;
@@ -198,10 +202,15 @@ export type AuditCommitmentResult = {
 };
 
 /**
- * Auditor path: read on-chain commitment, fetch 0G blob, decrypt when AES fallback key is present.
- * Lit-encrypted blobs return metadata only; decrypt with Lit in an auditor client.
+ * Auditor path: read on-chain commitment, fetch 0G blob, decrypt and verify keccak256(plaintext) === commitmentHash.
+ * - AES fallback: decrypt with embedded key (demo path).
+ * - Lit Chipotle: decrypt server-side when LIT_CHIPOTLE_* is configured (same PKP that encrypted).
+ * Otherwise returns lit-required for browser-side Lit decrypt.
  */
-export async function auditCommitment(commitmentHash: Hex): Promise<AuditCommitmentResult> {
+export async function auditCommitment(
+  commitmentHash: Hex,
+  options?: { auditorAddress?: Address },
+): Promise<AuditCommitmentResult> {
   const c = await contract.getCommitment(commitmentHash);
   if (c.commitmentHash !== commitmentHash) {
     throw new Error("Commitment not found on-chain");
@@ -221,18 +230,62 @@ export async function auditCommitment(commitmentHash: Hex): Promise<AuditCommitm
     hashVerified: false,
   };
 
-  if (sealed.fallbackKey && sealed.ciphertext) {
-    const plainBytes = decryptAesFallbackBlob(sealed.ciphertext, sealed.fallbackKey);
+  function finalizeVerifiedPlaintext(
+    plainBytes: Uint8Array,
+    mode: "aes-fallback" | "chipotle",
+  ): AuditCommitmentResult {
     const expected = keccak256(toHex(plainBytes));
     const parsed = JSON.parse(new TextDecoder().decode(plainBytes)) as AuditCommitmentResult["plaintext"];
+    const hashVerified = expected.toLowerCase() === commitmentHash.toLowerCase();
+    const anchorOk = hashMatchesOnChainAnchor(parsed, c.inputHash);
     return {
       ...base,
-      decryptMode: "aes-fallback",
+      decryptMode: mode,
       plaintext: parsed,
-      hashVerified: expected.toLowerCase() === commitmentHash.toLowerCase(),
-      note: hashMatchesOnChainAnchor(parsed, c.inputHash)
-        ? "Plaintext inputHash field matches on-chain inputHash."
-        : "Plaintext blob inputHash differs from on-chain anchor — inspect manually.",
+      hashVerified,
+      note: !hashVerified
+        ? "Decrypted plaintext keccak256 does not match commitmentHash — blob may be tampered or wrong hash passed."
+        : anchorOk
+          ? "Commitment hash verified (keccak256(plaintext)). Plaintext inputHash matches on-chain inputHash."
+          : "Commitment hash verified. Plaintext inputHash differs from on-chain anchor — inspect manually.",
+    };
+  }
+
+  if (sealed.fallbackKey && sealed.ciphertext) {
+    const plainBytes = decryptAesFallbackBlob(sealed.ciphertext, sealed.fallbackKey);
+    return finalizeVerifiedPlaintext(plainBytes, "aes-fallback");
+  }
+
+  const ac = sealed.accessConditions as { agentEns?: string } | undefined;
+  const agentEns = ac?.agentEns?.trim();
+  if (
+    sealed.ciphertext &&
+    env.lit.chipotleApiKey &&
+    env.lit.chipotlePkpId &&
+    agentEns
+  ) {
+    try {
+      const plainBytes = await chipotleDecrypt(
+        sealed.ciphertext,
+        agentEns,
+        options?.auditorAddress,
+      );
+      return finalizeVerifiedPlaintext(plainBytes, "chipotle");
+    } catch (err) {
+      return {
+        ...base,
+        decryptMode: "lit-required",
+        note: `Chipotle decrypt failed (${(err as Error).message}). Configure LIT_* or decrypt as an authorized auditor in a Lit-capable client.`,
+      };
+    }
+  }
+
+  if (sealed.ciphertext && (!env.lit.chipotleApiKey || !env.lit.chipotlePkpId)) {
+    return {
+      ...base,
+      decryptMode: "lit-required",
+      note:
+        "Blob is Lit (Chipotle) encrypted and this server has no LIT_CHIPOTLE_API_KEY / LIT_CHIPOTLE_PKP_ID — cannot verify hash here. Configure Chipotle credentials (same as encrypt) or decrypt in a Lit-capable auditor client; keccak256(utf8(JSON plaintext)) must equal commitmentHash.",
     };
   }
 
@@ -240,7 +293,7 @@ export async function auditCommitment(commitmentHash: Hex): Promise<AuditCommitm
     ...base,
     decryptMode: "lit-required",
     note:
-      "Blob is Lit-encrypted. Decrypt with a Lit client using accessConditions; then keccak256(utf8(JSON)) should match commitmentHash.",
+      "Could not decrypt sealed blob (missing ciphertext, agentEns in accessConditions, or unsupported format). For Lit blobs, decrypt with accessConditions then verify keccak256(plaintext utf-8) === commitmentHash.",
   };
 }
 

@@ -31,7 +31,7 @@ const STACK_ITEMS = [
   {
     key: "compute",
     label: "0G Compute",
-    description: "Optional sealed inference (ZK tier).",
+    description: "Optional sealed inference (tier 1).",
   },
   {
     key: "ens",

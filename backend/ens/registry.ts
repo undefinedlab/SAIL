@@ -4,7 +4,7 @@
  * Every SAIL agent gets a subdomain under the operator's ENS name.
  * Text records store everything another agent needs to interact:
  *   axl_peer_id   → AXL mesh peer ID (how to reach this agent P2P)
- *   sail_tier     → optimistic | zk | tee
+ *   sail_tier     → optimistic | sealed | tee (legacy: zk for tier 1)
  *   sail_contract → SAIL contract address
  *   capabilities  → comma-separated list
  *   auditors      → comma-separated auditor addresses
@@ -162,7 +162,7 @@ function labelHash(label: string): Hex {
 
 export type AgentTextRecords = {
   axl_peer_id?: string;
-  sail_tier?: "optimistic" | "zk" | "tee";
+  sail_tier?: "optimistic" | "sealed" | "tee" | "zk";
   sail_contract?: string;
   capabilities?: string;
   auditors?: string;

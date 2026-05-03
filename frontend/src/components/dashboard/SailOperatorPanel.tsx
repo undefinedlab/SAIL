@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAccount } from "wagmi";
-import { TIER_LABELS } from "@/lib/sail-abi";
+import { TIER_LABELS, tierEnsSlug } from "@/lib/sail-abi";
 import {
   attestInputs,
   commitToSail,
@@ -16,7 +16,6 @@ import {
   reason,
   registerAgent,
   registerEnsSubname,
-  resolveEnsName,
   sendAxlMessage,
   discoverAgent,
   delegateTask,
@@ -32,9 +31,16 @@ import {
   type ProcessedTask,
 } from "@/lib/sail-api";
 import { useBackendStatus } from "@/lib/hooks/useBackendStatus";
-import { expectedChain } from "@/lib/wagmi-config";
+import { expectedChain, sailApiLabel } from "@/lib/wagmi-config";
 import { IntegrationStatusCards } from "@/components/dashboard/IntegrationStatusCards";
 import { TxLink } from "@/components/ui/TxLink";
+import {
+  SEAL_AX_TOPIC,
+  buildAcceptMessage,
+  buildDenyMessage,
+  parseAuditRequestMessage,
+  type ParsedAuditRequest,
+} from "@/lib/audit-message";
 
 const SAIL_ERRORS: Record<string, string> = {
   SAIL__AlreadyRegistered:    "Agent already registered with this ENS name",
@@ -59,8 +65,51 @@ function friendlyError(raw: string): string {
   return raw.split("\n")[0].replace(/^Error:\s*/, "");
 }
 
-/** Top-level workspaces in flow order: register → pipeline → monitor → identity → mesh. */
-type PrimaryWorkspace = "register" | "pipeline" | "monitor" | "identity" | "mesh";
+/** JSON-RPC -32602 style messages often come from the backend’s Sepolia provider during estimateGas/send — not from your inputs JSON. */
+function augmentRpcError(stage: string, raw: string): string {
+  const m = friendlyError(raw);
+  let out = `${stage}: ${m}`;
+  if (/missing or invalid parameter/i.test(m)) {
+    out += `\n\nUsually the operator wallet’s RPC (commit/execute on the API server) rejected the eth_estimateGas / send request — check SEPOLIA RPC URL & key on the backend you’re calling. Frontend API target: ${sailApiLabel}. For local backend use NEXT_PUBLIC_SAIL_API_URL=http://localhost:3001 (restart dev server).`;
+  }
+  return out;
+}
+
+/** Top-level workspaces in flow order: register → pipeline → manage → reveal → mesh. */
+type PrimaryWorkspace = "register" | "pipeline" | "manage" | "reveal" | "mesh";
+
+type AxlInboxMessage = {
+  from: string;
+  message: string;
+  topic?: string;
+  timestamp: number;
+};
+
+/** Matches wire formats in `src/lib/audit-message.ts` — auditor ↔ operator SEAL traffic over AXL. */
+function isRevealInboxMessage(body: string): boolean {
+  const t = body.trim();
+  return (
+    t.startsWith("SEAL — Submit audit reveal") ||
+    t.startsWith("SEAL — Audit request") ||
+    t.startsWith("SEAL deny audit request") ||
+    t.startsWith("SEAL — Audit deny") ||
+    t.startsWith("SEAL — Audit accept")
+  );
+}
+
+function mergeRevealInbox(prev: AxlInboxMessage[], batch: AxlInboxMessage[]): AxlInboxMessage[] {
+  const key = (m: AxlInboxMessage) => `${m.timestamp}\0${m.from}\0${m.message}`;
+  const seen = new Set(prev.map(key));
+  const out = [...prev];
+  for (const m of batch) {
+    const k = key(m);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(m);
+    }
+  }
+  return out.sort((a, b) => b.timestamp - a.timestamp);
+}
 
 function neuronToA0gi(neuron: string): string {
   try {
@@ -99,8 +148,6 @@ type PipelineResult = {
   executeTxHash?: string;
 };
 
-type EnsRecords = Record<string, string>;
-
 type AxlTopology = {
   online: boolean;
   peerId?: string;
@@ -137,16 +184,14 @@ const PIPELINE_EXAMPLES = [
   },
 ];
 
-function tierRecordValue(tier: 0 | 1 | 2) {
-  return tier === 0 ? "optimistic" : tier === 1 ? "zk" : "tee";
-}
-
 function shortPeer(peerId: string) {
   return peerId.length > 24 ? `${peerId.slice(0, 14)}…${peerId.slice(-8)}` : peerId;
 }
 
 export function SailOperatorPanel() {
-  const { isConnected, chain } = useAccount();
+  const { address, isConnected, chain } = useAccount();
+  /** Tracks the wallet address we last prefilled so switching accounts can refresh the default. */
+  const auditorsWalletPrefillRef = useRef<string | null>(null);
   const backend = useBackendStatus();
 
   const [primary, setPrimary] = useState<PrimaryWorkspace>("register");
@@ -156,7 +201,7 @@ export function SailOperatorPanel() {
   const [computeLedger, setComputeLedger] = useState<LedgerInfo | null>(null);
 
   const [regEns, setRegEns] = useState("");
-  const [regTier, setRegTier] = useState<0 | 1 | 2>(0);
+  const [regTier, setRegTier] = useState<0 | 1>(0);
   const [regAuditors, setRegAuditors] = useState("");
   const [regStake, setRegStake] = useState("0.01");
   const [regBusy, setRegBusy] = useState(false);
@@ -170,7 +215,7 @@ export function SailOperatorPanel() {
 
   const [pipeEns, setPipeEns] = useState("");
   const [pipeInputs, setPipeInputs] = useState("");
-  const [pipeZk, setPipeZk] = useState(false);
+  const [pipeSealedInference, setPipeSealedInference] = useState(false);
   const [pipeSysPrompt, setPipeSysPrompt] = useState(
     "You are a treasury manager. Reply with a single concise decision.",
   );
@@ -183,7 +228,6 @@ export function SailOperatorPanel() {
   const [monAgent, setMonAgent] = useState<AgentInfo | null>(null);
   const [monError, setMonError] = useState<string | null>(null);
 
-  const [identityName, setIdentityName] = useState("");
   const [identityParent, setIdentityParent] = useState(
     process.env.NEXT_PUBLIC_ENS_PARENT_NAME ?? "sail.eth",
   );
@@ -192,9 +236,6 @@ export function SailOperatorPanel() {
     "commit,execute,audit,delegate",
   );
   const [identityAxlPeerId, setIdentityAxlPeerId] = useState("");
-  const [identityResolveBusy, setIdentityResolveBusy] = useState(false);
-  const [identityResolveError, setIdentityResolveError] = useState<string | null>(null);
-  const [identityRecords, setIdentityRecords] = useState<EnsRecords | null>(null);
   const [identityOwnsBusy, setIdentityOwnsBusy] = useState(false);
   const [identityOwns, setIdentityOwns] = useState<boolean | null>(null);
   const [identityOwnsError, setIdentityOwnsError] = useState<string | null>(null);
@@ -222,6 +263,13 @@ export function SailOperatorPanel() {
   const [meshInbox, setMeshInbox] = useState<
     Array<{ from: string; message: string; topic?: string; timestamp: number }>
   >([]);
+
+  const [revealInbox, setRevealInbox] = useState<AxlInboxMessage[]>([]);
+  const [revealInboxBusy, setRevealInboxBusy] = useState(false);
+  const [revealInboxError, setRevealInboxError] = useState<string | null>(null);
+  const [answeredAuditRequests, setAnsweredAuditRequests] = useState<Record<string, "accept" | "deny">>({});
+  const [auditRespondBusy, setAuditRespondBusy] = useState(false);
+  const [auditRespondError, setAuditRespondError] = useState<string | null>(null);
 
   // --- Agent-to-agent communication state ---
   const [discoverEns, setDiscoverEns] = useState("");
@@ -273,6 +321,23 @@ export function SailOperatorPanel() {
     };
   }, [backend.status]);
 
+  useEffect(() => {
+    if (!address) return;
+    setRegAuditors((prev) => {
+      const trimmed = prev.trim();
+      if (trimmed === "") return address;
+      const last = auditorsWalletPrefillRef.current;
+      if (
+        last &&
+        trimmed.toLowerCase() === last.toLowerCase()
+      ) {
+        return address;
+      }
+      return prev;
+    });
+    auditorsWalletPrefillRef.current = address;
+  }, [address]);
+
   async function handleRegister() {
     setRegBusy(true);
     setRegError(null);
@@ -282,7 +347,7 @@ export function SailOperatorPanel() {
       if (!regEns.trim()) throw new Error("ENS name required");
       const parentName = process.env.NEXT_PUBLIC_ENS_PARENT_NAME ?? "sail.eth";
       const rawEns = regEns.trim();
-      // Auto-append parent if user typed just a label (e.g. "swarnim" → "swarnim.sail.eth")
+      // Auto-append parent if user typed just a label (e.g. "swarnim" → "myagent.sail.eth")
       const fullEns = rawEns.includes(".") ? rawEns : `${rawEns}.${parentName}`;
       const auditors = regAuditors
         .split(",")
@@ -300,7 +365,6 @@ export function SailOperatorPanel() {
       setRegEns(result.ens);
       setPipeEns(result.ens);
       setMonEns(result.ens);
-      setIdentityName(result.ens);
 
       const [label, ...rest] = result.ens.split(".");
       if (rest.length > 1) {
@@ -341,7 +405,7 @@ export function SailOperatorPanel() {
       let attestation: string | undefined;
       let decision = pipeInputs;
 
-      if (pipeZk) {
+      if (pipeSealedInference) {
         setPipeStatus("02 — 0G Compute sealed inference");
         const reasoning = await reason(pipeInputs, pipeSysPrompt);
         decision = reasoning.output;
@@ -357,24 +421,44 @@ export function SailOperatorPanel() {
       }
 
       setPipeStatus("03 — encrypting via Lit · uploading to 0G · anchoring on-chain");
-      const commit = await commitToSail({
-        agentEns: pipeEns.trim(),
-        inputHash: result.inputHash!,
-        decision,
-        proposedAction: "0xPLACEHOLDER",
-        attestation,
-      });
+      let commit: CommitResponse;
+      try {
+        commit = await commitToSail({
+          agentEns: pipeEns.trim(),
+          inputHash: result.inputHash!,
+          decision,
+          proposedAction: "0xPLACEHOLDER",
+          attestation,
+        });
+      } catch (e) {
+        throw new Error(
+          augmentRpcError(
+            "Step 03 (commit — Lit encrypt · 0G upload · on-chain commit)",
+            (e as Error).message ?? String(e),
+          ),
+        );
+      }
       result.commit = commit;
       setPipeResult({ ...result });
 
       setPipeStatus("04 — clearing execute gate");
-      const execute = await executeCommitment(pipeEns.trim(), commit.commitmentHash);
-      result.executeTxHash = execute.txHash;
+      try {
+        const execute = await executeCommitment(pipeEns.trim(), commit.commitmentHash);
+        result.executeTxHash = execute.txHash;
+      } catch (e) {
+        throw new Error(
+          augmentRpcError(
+            "Step 04 (execute — on-chain execute gate)",
+            (e as Error).message ?? String(e),
+          ),
+        );
+      }
       setPipeResult({ ...result });
 
       setPipeStatus("done");
     } catch (error) {
-      setPipeError(friendlyError((error as Error).message ?? String(error)));
+      const raw = (error as Error).message ?? String(error);
+      setPipeError(raw.includes("Step 0") ? raw : friendlyError(raw));
       setPipeStatus("");
     } finally {
       setPipeBusy(false);
@@ -400,22 +484,6 @@ export function SailOperatorPanel() {
       });
     } catch (error) {
       setMonError(friendlyError((error as Error).message ?? String(error)));
-    }
-  }
-
-  async function handleResolveEns() {
-    setIdentityResolveBusy(true);
-    setIdentityResolveError(null);
-    setIdentityRecords(null);
-
-    try {
-      if (!identityName.trim()) throw new Error("ENS name required");
-      const result = await resolveEnsName(identityName.trim());
-      setIdentityRecords(result.records);
-    } catch (error) {
-      setIdentityResolveError(friendlyError((error as Error).message ?? String(error)));
-    } finally {
-      setIdentityResolveBusy(false);
     }
   }
 
@@ -449,7 +517,7 @@ export function SailOperatorPanel() {
         subLabel: identityLabel.trim(),
         records: {
           axl_peer_id: identityAxlPeerId.trim(),
-          sail_tier: tierRecordValue(regTier),
+          sail_tier: tierEnsSlug(regTier),
           sail_contract: backend.contract ?? "",
           capabilities: identityCapabilities.trim(),
           auditors: regAuditors.trim(),
@@ -457,7 +525,7 @@ export function SailOperatorPanel() {
       });
 
       setIdentityRegisterResult(result);
-      setIdentityName(result.ensName);
+      setMonEns(result.ensName);
     } catch (error) {
       setIdentityRegisterError(friendlyError((error as Error).message ?? String(error)));
     } finally {
@@ -519,6 +587,60 @@ export function SailOperatorPanel() {
       setMeshInboxBusy(false);
     }
   }
+
+  const handlePollRevealInbox = useCallback(async () => {
+    setRevealInboxBusy(true);
+    setRevealInboxError(null);
+    try {
+      const result = await receiveAxlMessages();
+      const filtered = result.messages.filter((m) => isRevealInboxMessage(m.message));
+      setRevealInbox((prev) => mergeRevealInbox(prev, filtered));
+    } catch (error) {
+      setRevealInboxError(friendlyError((error as Error).message ?? String(error)));
+    } finally {
+      setRevealInboxBusy(false);
+    }
+  }, []);
+
+  async function handleFormalAuditResponse(
+    fromPeer: string,
+    parsed: ParsedAuditRequest,
+    decision: "accept" | "deny",
+  ) {
+    setAuditRespondBusy(true);
+    setAuditRespondError(null);
+    try {
+      const body =
+        decision === "accept"
+          ? buildAcceptMessage(parsed.requestId, parsed.agentEns)
+          : buildDenyMessage(parsed.requestId, parsed.agentEns);
+      await sendAxlMessage({
+        to: fromPeer,
+        topic: SEAL_AX_TOPIC,
+        message: body,
+      });
+      setAnsweredAuditRequests((prev) => ({ ...prev, [parsed.requestId]: decision }));
+    } catch (error) {
+      setAuditRespondError(friendlyError((error as Error).message ?? String(error)));
+    } finally {
+      setAuditRespondBusy(false);
+    }
+  }
+
+  const pendingFormalAuditRequests = useMemo(() => {
+    const rows: Array<AxlInboxMessage & { parsed: ParsedAuditRequest }> = [];
+    const seen = new Set<string>();
+    for (const row of revealInbox) {
+      const parsed = parseAuditRequestMessage(row.message);
+      if (!parsed) continue;
+      if (answeredAuditRequests[parsed.requestId]) continue;
+      const dedupe = `${parsed.requestId}:${row.from}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      rows.push({ ...row, parsed });
+    }
+    return rows.sort((a, b) => b.timestamp - a.timestamp);
+  }, [revealInbox, answeredAuditRequests]);
 
   // --- Agent discovery ---
   async function handleDiscover() {
@@ -583,6 +705,16 @@ export function SailOperatorPanel() {
     return () => clearInterval(id);
   }, [primary, backend.status]);
 
+  // Poll AXL for auditor SEAL messages when Reveal inbox is open
+  useEffect(() => {
+    if (primary !== "reveal") return;
+    if (backend.status !== "online") return;
+
+    void handlePollRevealInbox();
+    const id = setInterval(() => void handlePollRevealInbox(), 8000);
+    return () => clearInterval(id);
+  }, [primary, backend.status, handlePollRevealInbox]);
+
   const chainMismatch = isConnected && chain?.id !== expectedChain.id;
 
   const primaryCls = (value: PrimaryWorkspace) =>
@@ -604,11 +736,11 @@ export function SailOperatorPanel() {
             <button type="button" className={primaryCls("pipeline")} onClick={() => setPrimary("pipeline")}>
               Pipeline
             </button>
-            <button type="button" className={primaryCls("monitor")} onClick={() => setPrimary("monitor")}>
-              Monitor
+            <button type="button" className={primaryCls("manage")} onClick={() => setPrimary("manage")}>
+              Manage
             </button>
-            <button type="button" className={primaryCls("identity")} onClick={() => setPrimary("identity")}>
-              Identity
+            <button type="button" className={primaryCls("reveal")} onClick={() => setPrimary("reveal")}>
+              Reveal
             </button>
             <button type="button" className={primaryCls("mesh")} onClick={() => setPrimary("mesh")}>
               Mesh
@@ -624,87 +756,108 @@ export function SailOperatorPanel() {
 
       <div className="pt-5">
         {primary === "register" && (
-          <div className="space-y-4">
-            <p className="text-xs text-neutral-500">
-              Register a new AI agent with the SAIL contract. The backend operator wallet signs the transaction and locks the stake.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs text-neutral-500">
-                  ENS name <span className="text-neutral-400">— label or full name (e.g. swarnim or swarnim.sail.eth)</span>
-                </label>
-                <input
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                  placeholder="swarnim.sail.eth"
-                  value={regEns}
-                  onChange={(event) => setRegEns(event.target.value)}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-neutral-500">
-                  Stake (ETH) <span className="text-neutral-400">— min 0.01</span>
-                </label>
-                <input
-                  className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                  placeholder="0.01"
-                  min="0.01"
-                  step="0.001"
-                  type="number"
-                  value={regStake}
-                  onChange={(event) => setRegStake(event.target.value)}
-                />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-neutral-500">Trust tier</label>
-              <div className="flex flex-wrap gap-3">
-                {([0, 1, 2] as const).map((tier) => (
-                  <label key={tier} className="flex cursor-pointer items-center gap-1.5 text-sm">
-                    <input type="radio" checked={regTier === tier} onChange={() => setRegTier(tier)} />
-                    {TIER_LABELS[tier]}
+          <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
+            <div className="min-w-0 space-y-4 lg:max-w-none">
+              <p className="text-xs text-neutral-500">
+                Register a new AI agent with the SAIL contract.               </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs text-neutral-500">
+                    ENS name <span className="text-neutral-400">— or label</span>
                   </label>
-                ))}
+                  <input
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                    placeholder="myagent.sail.eth"
+                    value={regEns}
+                    onChange={(event) => setRegEns(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs text-neutral-500">
+                    Stake (ETH) <span className="text-neutral-400">— min 0.01</span>
+                  </label>
+                  <input
+                    className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                    placeholder="0.01"
+                    min="0.01"
+                    step="0.001"
+                    type="number"
+                    value={regStake}
+                    onChange={(event) => setRegStake(event.target.value)}
+                  />
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-neutral-500">
-                Auditor addresses (comma-separated)
-              </label>
-              <input
-                className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
-                placeholder="0xAuditor1, 0xAuditor2"
-                value={regAuditors}
-                onChange={(event) => setRegAuditors(event.target.value)}
-              />
-            </div>
-            <button
-              onClick={handleRegister}
-              disabled={regBusy || backend.status !== "online"}
-              className="rounded bg-[#05058a] px-5 py-2 text-sm text-white disabled:opacity-40"
-            >
-              {regBusy ? "Registering… (contract + ENS subname)" : "Register agent"}
-            </button>
+              <div>
+                <label className="mb-1 block text-xs text-neutral-500">Trust tier</label>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6 sm:gap-y-2">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-sm">
+                    <input
+                      type="radio"
+                      name="reg-tier"
+                      checked={regTier === 0}
+                      onChange={() => setRegTier(0)}
+                    />
+                    {TIER_LABELS[0]}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-1.5 text-sm">
+                    <input
+                      type="radio"
+                      name="reg-tier"
+                      checked={regTier === 1}
+                      onChange={() => setRegTier(1)}
+                    />
+                    {TIER_LABELS[1]}
+                  </label>
+                  <span
+                    className="flex items-center gap-1.5 text-sm text-neutral-400 select-none"
+                    aria-disabled="true"
+                    title="Not available for registration"
+                  >
+                    <input type="radio" disabled tabIndex={-1} className="pointer-events-none opacity-50" />
+                    {TIER_LABELS[2]}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-neutral-500">
+                  Auditor addresses (comma-separated)
+                </label>
+                <input
+                  className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
+                  placeholder="0xAuditor1, 0xAuditor2"
+                  value={regAuditors}
+                  onChange={(event) => setRegAuditors(event.target.value)}
+                />
+              </div>
+              <button
+                onClick={handleRegister}
+                disabled={regBusy || backend.status !== "online"}
+                className="rounded bg-[#05058a] px-5 py-2 text-sm text-white disabled:opacity-40"
+              >
+                {regBusy ? "Registering… (contract + ENS subname)" : "Register agent"}
+              </button>
 
-            {regError ? (
-              <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {regError}
-              </p>
-            ) : null}
-            {regResult ? (
-              <div className="space-y-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
-                <p className="font-medium text-emerald-800">✓ Agent registered: {regResult.ens}</p>
-                <p>SAIL contract tx: <TxLink hash={regResult.txHash} /></p>
-                {regResult.ensSubname ? (
-                  <p className="text-emerald-700">
-                    ✓ ENS subname created
-                    {regResult.ensSubname.pendingRecords ? " (text records writing in background…)" : ""}
-                  </p>
-                ) : null}
-                {regResult.ensError ? (
-                  <p className="text-amber-700">⚠ ENS subname: {regResult.ensError}</p>
-                ) : null}
-              </div>
-            ) : null}
+              {regError ? (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {regError}
+                </p>
+              ) : null}
+              {regResult ? (
+                <div className="space-y-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs">
+                  <p className="font-medium text-emerald-800">✓ Agent registered: {regResult.ens}</p>
+                  <p>SAIL contract tx: <TxLink hash={regResult.txHash} /></p>
+                  {regResult.ensSubname ? (
+                    <p className="text-emerald-700">
+                      ✓ ENS subname created
+                      {regResult.ensSubname.pendingRecords ? " (text records writing in background…)" : ""}
+                    </p>
+                  ) : null}
+                  {regResult.ensError ? (
+                    <p className="text-amber-700">⚠ ENS subname: {regResult.ensError}</p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         )}
 
@@ -753,12 +906,12 @@ export function SailOperatorPanel() {
                 <label className="flex cursor-pointer items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={pipeZk}
-                    onChange={(event) => setPipeZk(event.target.checked)}
+                    checked={pipeSealedInference}
+                    onChange={(event) => setPipeSealedInference(event.target.checked)}
                   />
-                  Use ZK tier and route reasoning through 0G Compute
+                  Run 0G Compute sealed inference before commit
                 </label>
-                {pipeZk ? (
+                {pipeSealedInference ? (
                   <input
                     className="w-full rounded border border-neutral-300 px-2 py-1.5 font-mono text-xs"
                     placeholder="System prompt for the reasoning model"
@@ -937,134 +1090,109 @@ export function SailOperatorPanel() {
           </div>
         )}
 
-        {primary === "monitor" && (
+        {primary === "manage" && (
           <div className="space-y-4">
             <p className="text-xs text-neutral-500">
-              Look up any registered SAIL agent by ENS name and inspect the contract-level state that drives auditability.
+              Look up contract state by ENS, or create and update the agent subname and text records for your operator wallet.
             </p>
-            <div className="flex gap-2">
-              <input
-                className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                placeholder="myagent.sail.eth"
-                value={monEns}
-                onChange={(event) => setMonEns(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && void handleMonitorLookup()}
-              />
-              <button
-                onClick={handleMonitorLookup}
-                className="rounded border border-neutral-300 px-4 py-1.5 text-sm hover:bg-neutral-50"
-              >
-                Lookup
-              </button>
-            </div>
-            {monError ? (
-              <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                {monError}
-              </p>
-            ) : null}
-            {monAgent ? (
-              <div className="rounded border border-neutral-200 p-4 text-xs">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                      monAgent.active
-                        ? "bg-emerald-100 text-emerald-700"
-                        : "bg-red-100 text-red-700"
-                    }`}
-                  >
-                    {monAgent.active ? "active" : "slashed / inactive"}
-                  </span>
-                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px]">
-                    {TIER_LABELS[monAgent.tier] ?? "unknown"} tier
-                  </span>
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">On-chain</p>
+                  <h3 className="mt-2 text-base font-bold text-[#05058a]">Agent lookup</h3>
                 </div>
-                <dl className="mt-4 grid gap-x-4 gap-y-3 md:grid-cols-2">
-                  <div>
-                    <dt className="text-neutral-400">Wallet</dt>
-                    <dd className="break-all font-mono">{monAgent.wallet}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-400">Stake (wei)</dt>
-                    <dd className="font-mono">{monAgent.stake}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-400">Commitments</dt>
-                    <dd>{monAgent.commitmentCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-400">Slashes</dt>
-                    <dd>{monAgent.slashCount}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-400">Current nonce</dt>
-                    <dd>{monAgent.nonce}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-400">Auditors</dt>
-                    <dd className="space-y-1">
-                      {monAgent.auditors.length ? (
-                        monAgent.auditors.map((auditor) => (
-                          <div key={auditor} className="break-all font-mono">
-                            {auditor}
-                          </div>
-                        ))
-                      ) : (
-                        <span>None listed</span>
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-                {backend.contract ? (
-                  <div className="mt-4">
-                    <dt className="mb-1 text-neutral-400">Explorer</dt>
-                    <a
-                      href={`https://sepolia.etherscan.io/address/${backend.contract}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-blue-600 underline"
-                    >
-                      View SAIL contract →
-                    </a>
+                <p className="text-xs text-neutral-500">
+                  Query the SAIL contract for wallet, stake, tier, auditors, and nonce — the canonical view for audit workflows.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 rounded border border-neutral-300 px-2 py-1.5 text-sm"
+                    placeholder="myagent.sail.eth"
+                    value={monEns}
+                    onChange={(event) => setMonEns(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && void handleMonitorLookup()}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleMonitorLookup}
+                    className="rounded border border-neutral-300 px-4 py-1.5 text-sm hover:bg-neutral-50"
+                  >
+                    Lookup
+                  </button>
+                </div>
+                {monError ? (
+                  <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    {monError}
+                  </p>
+                ) : null}
+                {monAgent ? (
+                  <div className="rounded border border-neutral-200 bg-white p-4 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                          monAgent.active
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
+                        {monAgent.active ? "active" : "slashed / inactive"}
+                      </span>
+                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px]">
+                        {TIER_LABELS[monAgent.tier] ?? "unknown"} tier
+                      </span>
+                    </div>
+                    <dl className="mt-4 grid gap-x-4 gap-y-3 md:grid-cols-1">
+                      <div>
+                        <dt className="text-neutral-400">Wallet</dt>
+                        <dd className="break-all font-mono">{monAgent.wallet}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-neutral-400">Stake (wei)</dt>
+                        <dd className="font-mono">{monAgent.stake}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-neutral-400">Commitments</dt>
+                        <dd>{monAgent.commitmentCount}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-neutral-400">Slashes</dt>
+                        <dd>{monAgent.slashCount}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-neutral-400">Current nonce</dt>
+                        <dd>{monAgent.nonce}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-neutral-400">Auditors</dt>
+                        <dd className="space-y-1">
+                          {monAgent.auditors.length ? (
+                            monAgent.auditors.map((auditor) => (
+                              <div key={auditor} className="break-all font-mono">
+                                {auditor}
+                              </div>
+                            ))
+                          ) : (
+                            <span>None listed</span>
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                    {backend.contract ? (
+                      <div className="mt-4">
+                        <dt className="mb-1 text-neutral-400">Explorer</dt>
+                        <a
+                          href={`https://sepolia.etherscan.io/address/${backend.contract}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-blue-600 underline"
+                        >
+                          View SAIL contract →
+                        </a>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
-            ) : null}
-          </div>
-        )}
-
-        {primary === "identity" && (
-          <div className="grid gap-4 xl:grid-cols-2">
-            <div className="space-y-4 border border-neutral-200 bg-[#f5f5f0] p-4">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.2em] text-[#05058a]/50">
-                  ENS resolve
-                </p>
-                <h3 className="mt-2 text-base font-bold text-[#05058a]">Inspect live records</h3>
-              </div>
-              <input
-                className="w-full rounded border border-neutral-300 px-2 py-1.5 text-sm"
-                placeholder="myagent.sail.eth"
-                value={identityName}
-                onChange={(event) => setIdentityName(event.target.value)}
-              />
-              <button
-                onClick={handleResolveEns}
-                disabled={identityResolveBusy || backend.status !== "online"}
-                className="rounded border border-[#05058a] px-4 py-2 text-sm text-[#05058a] disabled:opacity-40"
-              >
-                {identityResolveBusy ? "Resolving…" : "Resolve ENS"}
-              </button>
-              {identityResolveError ? (
-                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-                  {identityResolveError}
-                </p>
-              ) : null}
-              {identityRecords ? (
-                <pre className="overflow-auto rounded border border-neutral-200 bg-white p-3 text-[11px] text-neutral-700">
-                  {JSON.stringify(identityRecords, null, 2)}
-                </pre>
-              ) : null}
-            </div>
 
             <div className="space-y-4 border border-neutral-200 bg-white p-4">
               <div>
@@ -1187,6 +1315,139 @@ export function SailOperatorPanel() {
               ) : null}
             </div>
           </div>
+          </div>
+        )}
+
+        {primary === "reveal" && (
+          <div className="space-y-4">
+            <p className="text-xs text-neutral-500">
+              <strong className="font-medium text-neutral-700">Formal handshake:</strong> auditors send a structured audit request over AXL; you respond with Accept or Deny (same transport). Other rows list all matching SEAL traffic (reveal submissions, legacy denies).
+              Wire format: <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[11px]">audit-message.ts</code>, topic{" "}
+              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-[11px]">{SEAL_AX_TOPIC}</code>.
+            </p>
+
+            {pendingFormalAuditRequests.length > 0 ? (
+              <div className="space-y-3 rounded border border-[#05058a]/25 bg-[#05058a]/[0.03] p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#05058a]">
+                  Pending audit requests
+                </p>
+                <ul className="space-y-3">
+                  {pendingFormalAuditRequests.map((row) => (
+                    <li
+                      key={`${row.parsed.requestId}:${row.from}`}
+                      className="rounded border border-neutral-200 bg-white p-4 text-xs shadow-sm"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-2">
+                        <span className="font-mono text-[11px] text-[#05058a]">From {shortPeer(row.from)}</span>
+                        <time className="text-[11px] text-neutral-400" dateTime={new Date(row.timestamp).toISOString()}>
+                          {new Date(row.timestamp).toLocaleString()}
+                        </time>
+                      </div>
+                      <dl className="mt-3 grid gap-2 text-[11px] sm:grid-cols-2">
+                        <div>
+                          <dt className="text-neutral-400">requestId</dt>
+                          <dd className="break-all font-mono">{row.parsed.requestId}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-neutral-400">agentEns</dt>
+                          <dd className="break-all font-mono">{row.parsed.agentEns}</dd>
+                        </div>
+                        {row.parsed.auditor ? (
+                          <div className="sm:col-span-2">
+                            <dt className="text-neutral-400">auditor</dt>
+                            <dd className="break-all font-mono">{row.parsed.auditor}</dd>
+                          </div>
+                        ) : null}
+                      </dl>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleFormalAuditResponse(row.from, row.parsed, "accept")}
+                          disabled={auditRespondBusy || backend.status !== "online"}
+                          className="rounded bg-emerald-600 px-4 py-2 text-sm text-white disabled:opacity-40 hover:bg-emerald-700"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleFormalAuditResponse(row.from, row.parsed, "deny")}
+                          disabled={auditRespondBusy || backend.status !== "online"}
+                          className="rounded border border-red-300 bg-white px-4 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-40"
+                        >
+                          Deny
+                        </button>
+                      </div>
+                      <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded border border-neutral-100 bg-[#f8f8f4] p-2 font-mono text-[10px] text-neutral-600">
+                        {row.message}
+                      </pre>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
+            {auditRespondError ? (
+              <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{auditRespondError}</p>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handlePollRevealInbox()}
+                disabled={revealInboxBusy || backend.status !== "online"}
+                className="rounded bg-[#05058a] px-4 py-2 text-sm text-white disabled:opacity-40"
+              >
+                {revealInboxBusy ? "Polling…" : "Refresh inbox"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRevealInbox([])}
+                disabled={revealInbox.length === 0}
+                className="rounded border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50 disabled:opacity-40"
+              >
+                Clear list
+              </button>
+              <span className="text-xs text-neutral-400">
+                Auto-refreshes every 8s while this tab is open.
+              </span>
+            </div>
+            {revealInboxError ? (
+              <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{revealInboxError}</p>
+            ) : null}
+            {revealInboxBusy && revealInbox.length === 0 ? (
+              <p className="rounded border border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-xs text-neutral-500">
+                Polling AXL…
+              </p>
+            ) : revealInbox.length === 0 ? (
+              <p className="rounded border border-neutral-200 bg-neutral-50 px-4 py-6 text-center text-xs text-neutral-500">
+                No auditor reveal traffic yet. When an auditor sends a SEAL audit request or reveal submission to this node’s AXL peer, it will appear here.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {revealInbox.map((row) => (
+                  <li
+                    key={`${row.timestamp}-${row.from}-${row.message.slice(0, 48)}`}
+                    className="rounded border border-neutral-200 bg-white p-4 text-xs shadow-sm"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-100 pb-2">
+                      <span className="font-mono text-[11px] text-[#05058a]">{shortPeer(row.from)}</span>
+                      <time className="text-[11px] text-neutral-400" dateTime={new Date(row.timestamp).toISOString()}>
+                        {new Date(row.timestamp).toLocaleString()}
+                      </time>
+                    </div>
+                    {row.topic ? (
+                      <p className="mt-2 text-[11px] text-neutral-500">
+                        Topic: <span className="font-mono">{row.topic}</span>
+                      </p>
+                    ) : null}
+                    <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded border border-neutral-100 bg-[#f8f8f4] p-3 font-mono text-[11px] text-neutral-800">
+                      {row.message}
+                    </pre>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
 
         {primary === "mesh" && (
@@ -1257,7 +1518,7 @@ export function SailOperatorPanel() {
                     )}
                     {discoveredAgent.agent && (
                       <div className="space-y-1 text-neutral-600">
-                        <p>Tier: {["optimistic", "zk", "tee"][discoveredAgent.agent.tier]}</p>
+                        <p>Tier: {TIER_LABELS[discoveredAgent.agent.tier as 0 | 1 | 2] ?? "unknown"}</p>
                         <p>Stake: {(Number(discoveredAgent.agent.stake) / 1e18).toFixed(4)} ETH</p>
                         <p className="break-all">Wallet: {shortAddr(discoveredAgent.agent.wallet)}</p>
                       </div>
