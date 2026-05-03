@@ -140,23 +140,25 @@ export async function encryptCommitmentBlob(
   const accessConditions = sailAccessConditions(agentEns);
   const dataToEncryptHash = Buffer.from(plaintext).toString("hex").slice(0, 64);
 
+  // Always generate an AES fallback key — stored alongside Chipotle ciphertext so
+  // audit can succeed even if the Chipotle action CID is rotated / 403'd.
+  const { ciphertext: aesCiphertext, fallbackKey } = aesEncrypt(plaintext);
+
   // Try Chipotle if credentials are set
   if (env.lit.chipotleApiKey && env.lit.chipotlePkpId) {
     try {
       const ciphertext = await chipotleEncrypt(plaintext);
-      console.log("[Lit] Chipotle encryption succeeded");
-      return { ciphertext, dataToEncryptHash, accessConditions, encryptionMethod: "chipotle" };
+      console.log("[Lit] Chipotle encryption succeeded (AES fallbackKey also stored for audit reliability)");
+      return { ciphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "chipotle" };
     } catch (err) {
       console.warn("[Lit] Chipotle encryption failed, using AES fallback:", (err as Error).message);
     }
   } else {
-    console.warn("[Lit] Chipotle credentials not set (LIT_CHIPOTLE_API_KEY / LIT_CHIPOTLE_PKP_ID) — using AES fallback");
+    console.warn("[Lit] Chipotle credentials not set — using AES fallback");
   }
 
-  // AES-256-GCM fallback
-  const { ciphertext, fallbackKey } = aesEncrypt(plaintext);
-  console.warn("[Lit] AES fallback used — fallbackKey stored in blob metadata");
-  return { ciphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "aes-fallback" };
+  console.warn("[Lit] AES fallback used");
+  return { ciphertext: aesCiphertext, dataToEncryptHash, accessConditions, fallbackKey, encryptionMethod: "aes-fallback" };
 }
 
 /**

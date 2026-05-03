@@ -57,6 +57,27 @@ export const SAIL_ABI = parseAbi([
 
 export const SAIL_ADDRESS = env.sail.contractAddress as Address;
 
+// Publicnode and most free Sepolia RPCs limit eth_getLogs to 50,000 blocks per request.
+// We start from a known recent block and chunk upward to avoid "exceed maximum block range".
+const SAIL_DEPLOY_BLOCK = 10_600_000n;
+const LOG_CHUNK_SIZE = 49_000n;
+
+/** getLogs with automatic chunking to stay within provider's 50k-block limit. */
+async function getLogsChunked(
+  params: Parameters<typeof publicClient.getLogs>[0] & { fromBlock: bigint },
+): Promise<Awaited<ReturnType<typeof publicClient.getLogs>>> {
+  const latest = await publicClient.getBlockNumber();
+  const results: Awaited<ReturnType<typeof publicClient.getLogs>> = [];
+  let from = params.fromBlock;
+  while (from <= latest) {
+    const to = from + LOG_CHUNK_SIZE > latest ? latest : from + LOG_CHUNK_SIZE;
+    const chunk = await publicClient.getLogs({ ...params, fromBlock: from, toBlock: to });
+    results.push(...chunk);
+    from = to + 1n;
+  }
+  return results;
+}
+
 const operatorAccount = privateKeyToAccount(
   (env.sail.operatorKey.startsWith("0x") ? env.sail.operatorKey : `0x${env.sail.operatorKey}`) as Hex,
 );
@@ -104,12 +125,11 @@ const commitmentPostedEvent = getAbiItem({
  * decoding `commit()` calldata (indexed `string ens` in the event is not recoverable from topics alone).
  */
 export async function resolveEnsFromCommitmentHash(commitmentHash: Hex): Promise<string> {
-  const logs = await publicClient.getLogs({
+  const logs = await getLogsChunked({
     address: SAIL_ADDRESS,
     event: commitmentPostedEvent,
     args: { commitmentHash },
-    fromBlock: 0n,
-    toBlock: "latest",
+    fromBlock: SAIL_DEPLOY_BLOCK,
   });
   if (logs.length === 0) {
     throw new Error("No CommitmentPosted event for this commitment hash");
@@ -139,12 +159,11 @@ export async function resolveEnsFromCommitmentHash(commitmentHash: Hex): Promise
 
 /** All CommitmentPosted logs for this ENS (includes tx hash per post). */
 export async function getCommitmentPostedLogsForEns(ens: string) {
-  return publicClient.getLogs({
+  return getLogsChunked({
     address: SAIL_ADDRESS,
     event: commitmentPostedEvent,
     args: { ens },
-    fromBlock: 0n,
-    toBlock: "latest",
+    fromBlock: SAIL_DEPLOY_BLOCK,
   });
 }
 
@@ -185,11 +204,10 @@ async function mergeCommitmentPostedLogsForVariants(variants: string[]) {
 
 /** Fallback when indexed-string filters miss: scan logs and match decoded ENS (RPC / topic quirks). */
 async function scanCommitmentPostedMatchingEns(ensCandidates: Set<string>) {
-  const all = await publicClient.getLogs({
+  const all = await getLogsChunked({
     address: SAIL_ADDRESS,
     event: commitmentPostedEvent,
-    fromBlock: 0n,
-    toBlock: "latest",
+    fromBlock: SAIL_DEPLOY_BLOCK,
   });
   const matched: typeof all = [];
   for (const log of all) {

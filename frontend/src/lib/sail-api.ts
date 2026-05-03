@@ -462,3 +462,33 @@ export type SealedBlobResponse = {
 export async function fetchSealedBlob(cid: string): Promise<SealedBlobResponse> {
   return jsonRequest(`/api/reveal/${encodeURIComponent(cid)}`);
 }
+
+export type AuditCommitmentResult = {
+  commitmentHash: string;
+  onChain: {
+    inputHash: string;
+    cid: string;
+    nonce: string;
+    timestamp: string;
+    executed: boolean;
+  };
+  decryptMode: "aes-fallback" | "chipotle" | "lit-required" | "none";
+  plaintext?: {
+    inputHash: string;
+    decision: string;
+    proposedAction: string;
+    attestation?: string;
+    agentEns: string;
+    timestamp: number;
+  };
+  hashVerified: boolean;
+  note?: string;
+};
+
+export async function auditCommitment(
+  hash: string,
+  auditorAddress?: string,
+): Promise<AuditCommitmentResult> {
+  const params = auditorAddress ? `?auditor=${encodeURIComponent(auditorAddress)}` : "";
+  return jsonRequest(`/api/audit/${encodeURIComponent(hash)}${params}`);
+}

@@ -41,6 +41,12 @@ export function getRecvPollStats(): RecvPollStats {
   return { ...recvPollStats };
 }
 
+// In-memory store — all messages received from the bridge since process start.
+// The AXL bridge dequeues one message per GET /recv (gone forever after fetch).
+// We keep every message here so multiple UI panels (auditor + operator) all see them.
+const MAX_STORE = 500;
+const messageStore: ReceivedMessage[] = [];
+
 type RawTopology = {
   our_public_key: string;
   our_ipv6: string;
@@ -250,14 +256,16 @@ export async function receiveMessages(since?: number): Promise<ReceivedMessage[]
     const bytes = new Uint8Array(await res.arrayBuffer());
     const decoded = decodeEnvelope(bytes);
 
-    if (!since || decoded.timestamp > since) {
-      messages.push({
-        from,
-        message: decoded.message,
-        topic: decoded.topic,
-        timestamp: decoded.timestamp,
-      });
-    }
+    const msg: ReceivedMessage = {
+      from,
+      message: decoded.message,
+      topic: decoded.topic,
+      timestamp: decoded.timestamp,
+    };
+    // Append to persistent store (trim to cap)
+    messageStore.push(msg);
+    if (messageStore.length > MAX_STORE) messageStore.splice(0, messageStore.length - MAX_STORE);
+    messages.push(msg);
   }
 
   recvPollStats.apiRecvCalls += 1;
@@ -267,7 +275,11 @@ export async function receiveMessages(since?: number): Promise<ReceivedMessage[]
   recvPollStats.totalMessagesReturned += messages.length;
   if (messages.length === 0) recvPollStats.emptyBatches += 1;
 
-  return messages;
+  // Return all stored messages (optionally filtered by since), not just new ones,
+  // so multiple UI panels (auditor + operator) all see the same history.
+  return since
+    ? messageStore.filter((m) => m.timestamp > since)
+    : [...messageStore];
 }
 
 /** Health check — returns true if the local AXL node is reachable. */

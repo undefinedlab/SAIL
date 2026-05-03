@@ -252,7 +252,12 @@ export function SailOperatorPanel() {
   const [revealInbox, setRevealInbox] = useState<AxlInboxMessage[]>([]);
   const [revealInboxBusy, setRevealInboxBusy] = useState(false);
   const [revealInboxError, setRevealInboxError] = useState<string | null>(null);
-  const [answeredAuditRequests, setAnsweredAuditRequests] = useState<Record<string, "accept" | "deny">>({});
+  const [answeredAuditRequests, setAnsweredAuditRequests] = useState<Record<string, "accept" | "deny">>(() => {
+    try {
+      const stored = localStorage.getItem("sail_answered_audit_requests");
+      return stored ? (JSON.parse(stored) as Record<string, "accept" | "deny">) : {};
+    } catch { return {}; }
+  });
   const [auditRespondBusy, setAuditRespondBusy] = useState(false);
   const [auditRespondError, setAuditRespondError] = useState<string | null>(null);
 
@@ -581,7 +586,11 @@ export function SailOperatorPanel() {
         topic: SEAL_AX_TOPIC,
         message: body,
       });
-      setAnsweredAuditRequests((prev) => ({ ...prev, [parsed.requestId]: decision }));
+      setAnsweredAuditRequests((prev) => {
+        const next = { ...prev, [parsed.requestId]: decision };
+        try { localStorage.setItem("sail_answered_audit_requests", JSON.stringify(next)); } catch { /* ignore */ }
+        return next;
+      });
     } catch (error) {
       setAuditRespondError(friendlyError((error as Error).message ?? String(error)));
     } finally {

@@ -5,9 +5,12 @@ import { useAccount } from "wagmi";
 import {
   discoverAgent,
   getCommitment,
+  getAgentCommitments,
   receiveAxlMessages,
   sendAxlMessage,
+  auditCommitment,
   type DiscoveredAgent,
+  type AuditCommitmentResult,
 } from "@/lib/sail-api";
 import {
   SEAL_AX_TOPIC,
@@ -67,6 +70,16 @@ export function SailAuditorPanel() {
   const [requestDiscover, setRequestDiscover] = useState<DiscoveredAgent | null>(null);
   const [requestDiscoverBusy, setRequestDiscoverBusy] = useState(false);
   const [requestDiscoverError, setRequestDiscoverError] = useState<string | null>(null);
+
+  type CommitmentRow = {
+    commitmentHash: string;
+    cid: string;
+    nonce: string;
+    timestamp: string;
+    executed: boolean;
+    txHash: string;
+  };
+  const [agentCommitments, setAgentCommitments] = useState<CommitmentRow[]>([]);
   const [requestSendBusy, setRequestSendBusy] = useState(false);
   const [requestSendError, setRequestSendError] = useState<string | null>(null);
   const [formalOutbound, setFormalOutbound] = useState<FormalOutbound[]>([]);
@@ -97,6 +110,7 @@ export function SailAuditorPanel() {
     setRequestDiscover(null);
     setCommitmentPreview(null);
     setResolvedCommitmentHash(null);
+    setAgentCommitments([]);
 
     try {
       if (!requestEns.trim()) throw new Error("Enter agent ENS (e.g. myagent.sail.eth)");
@@ -107,6 +121,11 @@ export function SailAuditorPanel() {
           "No axl_peer_id on this ENS record — the operator must publish an AXL peer id for mesh delivery.",
         );
       }
+      // Fetch commitment history in parallel
+      try {
+        const { commitments } = await getAgentCommitments(requestEns.trim());
+        setAgentCommitments([...commitments].reverse()); // newest first
+      } catch { /* not fatal */ }
     } catch (error) {
       setRequestDiscoverError((error as Error).message);
     } finally {
@@ -232,6 +251,60 @@ export function SailAuditorPanel() {
     return () => clearInterval(id);
   }, [backend.status]);
 
+  // ---- Commitment browser — loads after ENS discovery ----
+  const [commitmentBrowserBusy, setCommitmentBrowserBusy] = useState(false);
+  const [commitmentBrowserError, setCommitmentBrowserError] = useState<string | null>(null);
+
+  async function handleBrowseCommitments(ens: string) {
+    setCommitmentBrowserBusy(true);
+    setCommitmentBrowserError(null);
+    setAgentCommitments([]);
+    try {
+      const data = await getAgentCommitments(ens);
+      setAgentCommitments(
+        [...data.commitments].reverse().map((c) => ({
+          commitmentHash: c.commitmentHash,
+          cid: c.cid,
+          nonce: c.nonce,
+          executed: c.executed,
+          timestamp: c.timestamp,
+          txHash: c.txHash,
+        })),
+      );
+    } catch (err) {
+      setCommitmentBrowserError((err as Error).message);
+    } finally {
+      setCommitmentBrowserBusy(false);
+    }
+  }
+
+  // ---- Decrypt & Verify section ----
+  const [decryptHashInput, setDecryptHashInput] = useState("");
+  const [decryptBusy, setDecryptBusy] = useState(false);
+  const [decryptResult, setDecryptResult] = useState<AuditCommitmentResult | null>(null);
+  const [decryptError, setDecryptError] = useState<string | null>(null);
+
+  async function handleDecryptAndVerify() {
+    setDecryptBusy(true);
+    setDecryptError(null);
+    setDecryptResult(null);
+    try {
+      const hash = normalizeCommitmentHashHex(decryptHashInput);
+      if (!hash) throw new Error("Enter a 32-byte commitment hash (0x + 64 hex characters).");
+      const result = await auditCommitment(hash, address ?? undefined);
+      setDecryptResult(result);
+    } catch (err) {
+      setDecryptError((err as Error).message);
+    } finally {
+      setDecryptBusy(false);
+    }
+  }
+
+  // Auto-fill decrypt hash from the first accepted outbound request that has a commitmentHash
+  const firstAcceptedHash = formalOutbound.find(
+    (r) => r.outcome === "accepted" && r.commitmentHash,
+  )?.commitmentHash;
+
   const canSend =
     !axlMeshDown &&
     requestEns.trim() &&
@@ -355,6 +428,62 @@ export function SailAuditorPanel() {
               </div>
             ) : null}
 
+            {requestDiscover && requestEns.trim() && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleBrowseCommitments(requestEns.trim())}
+                  disabled={commitmentBrowserBusy || backend.status !== "online"}
+                  className="rounded border border-neutral-300 px-3 py-1.5 text-[11px] hover:bg-neutral-50 disabled:opacity-40"
+                >
+                  {commitmentBrowserBusy ? "Loading…" : agentCommitments.length ? "↻ Refresh commitments" : "Load on-chain commitments"}
+                </button>
+                {commitmentBrowserError && (
+                  <span className="text-[11px] text-red-600">{commitmentBrowserError}</span>
+                )}
+              </div>
+            )}
+
+            {agentCommitments.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                  On-chain commitments ({agentCommitments.length}) — click to select for audit
+                </p>
+                <ul className="max-h-56 space-y-1 overflow-y-auto">
+                  {agentCommitments.map((c) => (
+                    <li key={c.commitmentHash}>
+                      <button
+                        type="button"
+                        onClick={() => setDecryptHashInput(c.commitmentHash)}
+                        className={`w-full rounded border px-3 py-2 text-left text-[11px] transition-colors hover:border-[#05058a]/40 hover:bg-[#f0f2ff] ${
+                          decryptHashInput === c.commitmentHash
+                            ? "border-[#05058a]/50 bg-[#f0f2ff]"
+                            : "border-neutral-200 bg-white"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="break-all font-mono text-[10px] text-neutral-700">
+                            {c.commitmentHash.slice(0, 18)}…{c.commitmentHash.slice(-8)}
+                          </span>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-medium ${c.executed ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                              {c.executed ? "executed" : "pending"}
+                            </span>
+                            <span className="text-[10px] text-neutral-400">nonce {c.nonce}</span>
+                          </div>
+                        </div>
+                        {c.timestamp ? (
+                          <p className="mt-0.5 text-[10px] text-neutral-400">
+                            {new Date(Number(c.timestamp) * 1000).toLocaleString()}
+                          </p>
+                        ) : null}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => void handleSendFormalAuditRequest()}
@@ -412,6 +541,153 @@ export function SailAuditorPanel() {
                 </ul>
               </div>
             ) : null}
+
+            {/* ---- Decrypt & Verify ---- */}
+            <div className="mt-6 space-y-3 rounded border border-[#05058a]/20 bg-[#f4f6ff] p-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#05058a]">
+                  Decrypt &amp; Verify commitment
+                </p>
+                <p className="mt-1 text-[11px] text-neutral-500">
+                  Calls{" "}
+                  <code className="rounded bg-white px-1 font-mono text-[10px]">GET /api/audit/:hash</code>{" "}
+                  with your wallet as the auditor. Backend decrypts via Lit Chipotle (enforcing{" "}
+                  <code className="font-mono text-[10px]">SAIL.isAuthorized</code> on-chain inside the TEE)
+                  and verifies <code className="font-mono text-[10px]">keccak256(plaintext) === commitmentHash</code>.
+                </p>
+                {!address && (
+                  <p className="mt-1 text-[11px] text-amber-700">Connect wallet — your address is passed as the auditor.</p>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  className="w-full min-w-0 flex-1 rounded border border-neutral-300 bg-white px-2 py-1.5 font-mono text-xs"
+                  placeholder="0x… (32-byte commitment hash)"
+                  value={decryptHashInput || firstAcceptedHash || ""}
+                  onChange={(e) => setDecryptHashInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void handleDecryptAndVerify()}
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleDecryptAndVerify()}
+                  disabled={decryptBusy || backend.status !== "online" || !address}
+                  className="shrink-0 rounded bg-[#05058a] px-4 py-2 text-sm text-white disabled:opacity-40"
+                >
+                  {decryptBusy ? "Decrypting…" : "Decrypt & Verify"}
+                </button>
+              </div>
+
+              {firstAcceptedHash && !decryptHashInput && (
+                <p className="text-[10px] text-neutral-500">
+                  Auto-filled from accepted request.{" "}
+                  <button
+                    type="button"
+                    className="text-[#05058a] underline"
+                    onClick={() => setDecryptHashInput(firstAcceptedHash)}
+                  >
+                    Lock in
+                  </button>
+                </p>
+              )}
+
+              {decryptError && (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                  {decryptError}
+                </p>
+              )}
+
+              {decryptResult && (
+                <div className="space-y-3 rounded border border-neutral-200 bg-white p-4 text-xs">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        decryptResult.hashVerified
+                          ? "bg-emerald-100 text-emerald-800"
+                          : "bg-red-100 text-red-800"
+                      }`}
+                    >
+                      {decryptResult.hashVerified ? "✓ Hash verified" : "✗ Hash mismatch"}
+                    </span>
+                    <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-700">
+                      {decryptResult.decryptMode}
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] ${
+                        decryptResult.onChain.executed
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-amber-100 text-amber-700"
+                      }`}
+                    >
+                      {decryptResult.onChain.executed ? "executed" : "not executed"}
+                    </span>
+                  </div>
+
+                  {decryptResult.note && (
+                    <p className="text-[11px] text-neutral-600">{decryptResult.note}</p>
+                  )}
+
+                  <dl className="grid gap-2 text-[11px] sm:grid-cols-2">
+                    <div>
+                      <dt className="text-neutral-400">on-chain inputHash</dt>
+                      <dd className="break-all font-mono text-[10px]">{decryptResult.onChain.inputHash}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-neutral-400">CID (0G Storage)</dt>
+                      <dd className="break-all font-mono text-[10px]">{decryptResult.onChain.cid}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-neutral-400">nonce</dt>
+                      <dd className="font-mono">{decryptResult.onChain.nonce}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-neutral-400">anchored at</dt>
+                      <dd>
+                        {decryptResult.onChain.timestamp
+                          ? new Date(Number(decryptResult.onChain.timestamp) * 1000).toLocaleString()
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  {decryptResult.plaintext && (
+                    <div className="space-y-2 border-t border-neutral-100 pt-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+                        Decrypted plaintext
+                      </p>
+                      <dl className="grid gap-2 text-[11px] sm:grid-cols-2">
+                        <div>
+                          <dt className="text-neutral-400">agentEns</dt>
+                          <dd className="font-mono">{decryptResult.plaintext.agentEns}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-neutral-400">inputHash (plaintext)</dt>
+                          <dd className="break-all font-mono text-[10px]">{decryptResult.plaintext.inputHash}</dd>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <dt className="text-neutral-400">decision</dt>
+                          <dd className="whitespace-pre-wrap break-words">{decryptResult.plaintext.decision}</dd>
+                        </div>
+                        <div className="sm:col-span-2">
+                          <dt className="text-neutral-400">proposedAction</dt>
+                          <dd className="whitespace-pre-wrap break-words">{decryptResult.plaintext.proposedAction}</dd>
+                        </div>
+                        {decryptResult.plaintext.attestation && (
+                          <div className="sm:col-span-2">
+                            <dt className="text-neutral-400">TEE attestation</dt>
+                            <dd className="break-all font-mono text-[10px]">{decryptResult.plaintext.attestation}</dd>
+                          </div>
+                        )}
+                        <div>
+                          <dt className="text-neutral-400">committed at</dt>
+                          <dd>{new Date(decryptResult.plaintext.timestamp).toLocaleString()}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </main>
       </div>
