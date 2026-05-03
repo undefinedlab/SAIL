@@ -2,7 +2,7 @@
 
 > **Gensyn Partner Prize Submission**
 
-SAIL uses **AXL** — Gensyn's open P2P network — as the encrypted communication layer between AI agents. Agents register on the mesh with their ed25519 identity, delegate tasks to each other over encrypted channels, and receive cryptographically-proven results (commitment hashes) in return.
+SAIL uses **AXL** Gensyn's open P2P network as the encrypted communication layer between AI agents. Agents register on the mesh with their ed25519 identity, delegate tasks to each other over encrypted channels, and receive cryptographically proven results (commitment hashes) in return.
 
 ---
 
@@ -13,12 +13,12 @@ SAIL's accountability guarantee is only as strong as the network that delivers t
 - A compromised intermediary can inject tasks that never came from the hiring agent
 - There is no cryptographic proof that the result came from the intended worker
 
-Without AXL, the SAIL multiagent model devolves into a web of API calls over HTTPS — trusted by convention, not by cryptography.
+Without AXL, the SAIL multiagent model devolves into a web of API calls over HTTPS trusted by convention, not by cryptography.
 
 With **AXL**:
-- Every node has a unique **ed25519 identity** — messages are signed at the transport layer, so the receiving agent knows the sender’s peer ID is genuine
-- Communication runs over a **P2P mesh** built on the Yggdrasil network stack — no central relay, no single point of interception
-- The AXL bridge runs in userspace with **no TUN interface or root privileges** required — any developer can spin up a node
+- Every node has a unique **ed25519 identity** messages are signed at the transport layer, so the receiving agent knows the sender’s peer ID is genuine
+- Communication runs over a **P2P mesh** built on the Yggdrasil network stack no central relay, no single point of interception
+- The AXL bridge runs in userspace with **no TUN interface or root privileges** required any developer can spin up a node
 - When a worker agent completes a delegated task, it returns the **commitment hash** — the hiring agent can verify this hash against the SAIL contract independently, without trusting the worker’s claim
 
 AXL is the only part of SAIL that operates purely between agents. Everything else (contracts, storage, encryption) is anchored to Ethereum or 0G. AXL is what makes agents first-class participants rather than dumb API endpoints.
@@ -28,7 +28,7 @@ AXL is the only part of SAIL that operates purely between agents. Everything els
 | AXL Primitive | How SAIL Uses It |
 |---------------|------------------|
 | **ed25519 identity** | Each developer's node gets a unique keypair — the public key is the Peer ID stored on ENS and used for routing |
-| **HTTP bridge (`GET /topology`, `POST /send`, `GET /recv`)** | SAIL communicates with the AXL node entirely over localhost HTTP — no Go SDK dependency |
+| **HTTP bridge (`GET /topology`, `POST /send`, `GET /recv`)** | SAIL communicates with the AXL node entirely over localhost HTTP no Go SDK dependency |
 | **`POST /send` + `X-Destination-Peer-Id`** | Operator sends `sail.task` messages to a worker's peer ID resolved from ENS |
 | **`GET /recv`** | Worker polls for incoming task messages; operator polls for `sail.result` replies |
 | **Yggdrasil + gVisor network stack** | Encrypted overlay network in userspace — no root, no port forwarding, no TUN |
@@ -263,14 +263,6 @@ curl -X POST http://localhost:3001/api/axl/delegate \
 curl http://localhost:3001/api/axl/delegations/<id>
 # { "status": "completed", "result": { "commitmentHash": "0x...", "cid": "0x...", "txHash": "0x...", "output": "..." } }
 ```
-
----
-
-## Known Limitations
-
-1. **Single node** — currently running one AXL node. Delegation to self works. Cross-machine delegation requires a second developer running their own node with `AXL_AUTO_START=true`.
-2. **No bootstrap peers** — two nodes need at least one public IP between them to establish initial connectivity. Set `AXL_LISTEN` on one machine and `AXL_PEERS` on the other.
-3. **Build time** — first start takes 2–5 minutes to clone and build the Go binary. Subsequent starts use the cached binary.
 
 ---
 
