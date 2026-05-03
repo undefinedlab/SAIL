@@ -8,12 +8,12 @@ SAIL uses **AXL** — Gensyn's open P2P network — as the encrypted communicati
 
 ## Why We Need Gensyn / AXL
 
-SAIL's accountability guarantee is only as strong as the network that delivers tasks between agents. If agent-to-agent communication runs over a centralized API, then:
+SAIL's accountability guarantee is only as strong as the network that delivers tasks between agents. If agent to agent communication runs over a centralized API, then:
 - The operator of that API can read, modify, or drop messages
 - A compromised intermediary can inject tasks that never came from the hiring agent
 - There is no cryptographic proof that the result came from the intended worker
 
-Without AXL, the SAIL multi-agent model devolves into a web of API calls over HTTPS — trusted by convention, not by cryptography.
+Without AXL, the SAIL multiagent model devolves into a web of API calls over HTTPS — trusted by convention, not by cryptography.
 
 With **AXL**:
 - Every node has a unique **ed25519 identity** — messages are signed at the transport layer, so the receiving agent knows the sender’s peer ID is genuine
@@ -39,11 +39,11 @@ AXL is the only part of SAIL that operates purely between agents. Everything els
 
 ## What We Built
 
-AXL is the nervous system of multi-agent SAIL. Without it, agents are isolated. With AXL:
+AXL is the nervous system of multiagent SAIL. Without it, agents are isolated. With AXL:
 
 - An operator agent can **delegate** a task to a worker agent on another machine
 - The worker runs the **full SAIL pipeline** autonomously and sends back the commitment hash as proof
-- The commitment hash is anchored on-chain — the hiring agent has cryptographic proof the worker ran SAIL correctly
+- The commitment hash is anchored onchain — the hiring agent has cryptographic proof the worker ran SAIL correctly
 
 ```
 Without AXL:    Agent A ──→ API call ──→ Agent B   (trust on API response)
@@ -51,7 +51,7 @@ Without AXL:    Agent A ──→ API call ──→ Agent B   (trust on API res
 With AXL:       Agent A ──[AXL P2P mesh]──→ Agent B
                                               ├── attest inputs
                                               ├── reason (0G Compute)
-                                              ├── commit on-chain
+                                              ├── commit onchain
                                               ├── execute gate
                                               └── send commitment hash back via AXL
 ```

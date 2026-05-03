@@ -10,16 +10,16 @@ SAIL uses **ENS** as the canonical identity layer for every AI agent. An ENS sub
 
 AI agents need identities that other agents, auditors, and infrastructure can discover without a central server.
 
-Without ENS, SAIL would need its own off-chain registry — a centralized point of failure. Every agent would need a raw wallet address (e.g. `0xc5b7...`) to be known, shared, and stored somewhere that anyone wanting to interact with that agent could look up. That lookup breaks the moment the registry goes down.
+Without ENS, SAIL would need its own offchain registry — a centralized point of failure. Every agent would need a raw wallet address (e.g. `0xc5b7...`) to be known, shared, and stored somewhere that anyone wanting to interact with that agent could look up. That lookup breaks the moment the registry goes down.
 
-With ENS, the identity is **on-chain and self-describing**:
+With ENS, the identity is **onchain and self-describing**:
 - `swarnim.sail.eth` is human-readable and resolvable by anyone
 - The text records stored on the ENS public resolver act as a **machine-readable capability manifest** — no separate API needed
-- Lit Protocol reads `SAIL.isAuthorized()` before decryption using the auditor address from the agent's on-chain SAIL record; ENS surfaces that address to any caller
+- Lit Protocol reads `SAIL.isAuthorized()` before decryption using the auditor address from the agent's onchain SAIL record; ENS surfaces that address to any caller
 - AXL uses the `axl_peer_id` text record to know which P2P address to send a task to — no address book required
 - ENS subnames are **non-custodial** — the operator wallet owns them, not SAIL
 
-Without ENS, multi-agent delegation would require exchanging wallet addresses and peer IDs out of band. With ENS, `sail_delegate("worker.sail.eth", task)` is the entire handshake.
+Without ENS, multiagent delegation would require exchanging wallet addresses and peer IDs out of band. With ENS, `sail_delegate("worker.sail.eth", task)` is the entire handshake.
 
 ### How ENS Tech Stack Helps SAIL
 

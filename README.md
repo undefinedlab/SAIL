@@ -4,7 +4,7 @@
 
 SAIL is a trust infrastructure layer for AI agents. Before any agent can execute a consequential action, it must publicly anchor a hash of its decision onchain. Any authorized auditor can later retrieve the encrypted decision, decrypt it using keys, and verify it matches the onchain anchor. If it doesn't the agent is slashed.
 
-> Register as `myagent.sail.eth`. Attest inputs. Commit your decision on-chain. Execute the gate. Get slashed if you lied.
+> Register as `myagent.sail.eth`. Attest inputs. Commit your decision onchain. Execute the gate. Get slashed if you lied.
 
 ---
 
@@ -12,32 +12,32 @@ SAIL is a trust infrastructure layer for AI agents. Before any agent can execute
 
 AI agents are moving money, executing trades, calling contracts, and sending messages. Nobody can prove what they decided or why.
 
-Logging doesn't solve this. An agent can modify logs retroactively. An agent can reason one thing and do another. The decision leaves no immutable trace. When a multi-agent system misbehaves, there is no accountability — just he-said-she-said between black boxes.
+Logging doesn't solve this. An agent can modify logs retroactively. An agent can reason one thing and do another. The decision leaves no immutable trace. When a multiagent system misbehaves, there is no accountability — just he-said-she-said between black boxes.
 
 ### The trust gap
 
 - **No immutable decision record** — AI agents act without leaving a tamper-proof trace of their reasoning.
-- **No accountability layer** — multi-agent delegation has no cryptographic proof of who decided what.
+- **No accountability layer** — multiagent delegation has no cryptographic proof of who decided what.
 - **No framework-agnostic standard** — Claude, Cursor, LangChain, CrewAI all need custom audit logic today.
 
 ### Scale
 
-- **$0** in on-chain AI agent activity has cryptographic commitment guarantees today
-- **0** existing protocols enforce commit-before-execute at the contract level
+- **$0** in onchain AI agent activity has cryptographic commitment guarantees today
+- **0** existing protocols enforce commit before execute at the contract level
 - **∞** risk surface as autonomous agents gain access to real funds
 
 ---
 
 ## The Solution
 
-SAIL enforces a **commit-before-execute** rule at the smart contract level.
+SAIL enforces a **commit before execute** rule at the smart contract level.
 
 ```
 Traditional AI agent:
   receive task → reason → act   (no record, trust the agent)
 
 SAIL agent:
-  receive task → hash inputs → reason → commit on-chain → execute gate → act → audit
+  receive task → hash inputs → reason → commit onchain → execute gate → act → audit
                      ↑                        ↑                  ↑
                 tamper-proof            encrypted blob      contract
                 input snapshot          on 0G Storage       enforced
@@ -57,7 +57,7 @@ An agent **must** publicly anchor a hash of its decision before it is allowed to
 | **0G Storage** | Decentralized encrypted blob storage (Galileo testnet) |
 | **0G Compute** | Sealed inference TEE — Qwen 2.5-7B, cryptographic attestation |
 | **Lit Protocol** | Threshold key management access conditions tied to `isAuthorized()` |
-| **AXL / Gensyn** | P2P encrypted mesh for agent-to-agent delegation and messaging |
+| **AXL / Gensyn** | P2P encrypted mesh for agent to agent delegation and messaging |
 | **ENS** | Agent identity — `*.sail.eth` subnames with SAIL text records |
 | **Express + TypeScript** | Backend API + MCP server |
 | **Next.js 16** | Operator, auditor, and agent dashboards (React 19, Wagmi v2) |
@@ -129,9 +129,9 @@ For ZK-tier agents, reasoning runs through **0G Compute** — a sealed inference
 The decision blob (inputHash + decision text + proposed action + optional attestation) is:
 1. **Encrypted** with Lit Protocol (threshold key management — access conditions tied to `SAIL.isAuthorized()`)
 2. **Uploaded** to **0G Storage** (decentralized storage, Galileo testnet)
-3. **Anchored** on-chain: `SAIL.commit(ens, commitmentHash, inputHash, cid)`
+3. **Anchored** onchain: `SAIL.commit(ens, commitmentHash, inputHash, cid)`
 
-The on-chain anchor is `keccak256(encrypted_blob_bytes)`. Nobody can see the decision until an authorized auditor decrypts it.
+The onchain anchor is `keccak256(encrypted_blob_bytes)`. Nobody can see the decision until an authorized auditor decrypts it.
 
 ### Stage 4 — Execute Gate
 ```solidity
@@ -186,7 +186,7 @@ SAIL exposes **MCP tools** (Model Context Protocol) from `backend/src/mcp/server
 
 | Tool | Stage | What it does |
 |------|-------|--------------|
-| `sail_register` | Setup | Register agent on-chain (stake + tier + auditors + ENS subname) |
+| `sail_register` | Setup | Register agent onchain (stake + tier + auditors + ENS subname) |
 | `sail_attest_inputs` | 01 | Hash all agent inputs before reasoning |
 | `sail_commit` | 03 | Encrypt decision + upload to 0G + anchor on SAIL |
 | `sail_execute` | 04 | Clear the execute gate (contract enforced) |
@@ -564,7 +564,7 @@ async with stdio_client(server_params) as (read, write):
 ```bash
 BASE=http://localhost:3001
 
-# Register agent (on-chain + ENS subname)
+# Register agent (onchain + ENS subname)
 curl -X POST $BASE/api/register \
   -d '{"ens":"myagent.sail.eth","tier":0,"auditors":["0xYourAddr"],"stakeEth":"0.01"}'
 
@@ -614,7 +614,7 @@ Open **`http://localhost:3000/dashboard`** and choose a path:
 | **`/dashboard/auditor`** | Resolve ENS / commitment hash, request audits, verify commitments (wallet-connected auditor flows). |
 | **`/dashboard/agent`** | AXL topology and peer discovery, **post open gigs** on the in-memory task board, track gig status (open / claimed). Mesh-centric coordination without replacing the operator pipeline. |
 
-Slash and high-risk actions still follow contract rules: auditors use on-chain authorization via `SAIL.isAuthorized`. Slash is irreversible — the agent’s `active` flag becomes false.
+Slash and high-risk actions still follow contract rules: auditors use onchain authorization via `SAIL.isAuthorized`. Slash is irreversible — the agent’s `active` flag becomes false.
 
 ---
 
@@ -626,9 +626,10 @@ SAIL is built on four protocol partners. Each has a dedicated integration guide:
 |---------|-------------|-------|
 | **0G** | Decentralized storage for commitment blobs + sealed inference TEE for ZK-tier reasoning | [docs/partners/0g.md](docs/partners/0g.md) |
 | **ENS** | Human-readable agent identity — `*.sail.eth` subnames carrying tier, auditors, and AXL peer ID | [docs/partners/ens.md](docs/partners/ens.md) |
-| **Gensyn / AXL** | Encrypted P2P mesh for agent-to-agent task delegation and result delivery | [docs/partners/gensyn.md](docs/partners/gensyn.md) |
-| **Lit Protocol** | Threshold encryption — access conditions tied to `SAIL.isAuthorized()` on-chain | [docs/partners/lit.md](docs/partners/lit.md) |
+| **Gensyn / AXL** | Encrypted P2P mesh for agent to agent task delegation and result delivery | [docs/partners/gensyn.md](docs/partners/gensyn.md) |
+| **Lit Protocol** | Threshold encryption — access conditions tied to `SAIL.isAuthorized()` onchain | [docs/partners/lit.md](docs/partners/lit.md) |
 
 ---
-Built for ETHGlobal Open Agents 2026 🤍  
-Cryptographic accountability for AI agents — because trust without proof is just hope.
+                    Built for ETHGlobal Open Agents 2026 🤍  
+                    
+Cryptographic accountability for AI agents because trust without proof is just hope.

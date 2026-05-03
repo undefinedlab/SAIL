@@ -2,13 +2,13 @@
 
 > **Lit Protocol Partner Prize Submission**
 
-SAIL uses **Lit Protocol Chipotle** as the encryption layer for AI agent commitment blobs. The access condition is tied directly to `SAIL.isAuthorized()` on-chain — Lit nodes check the SAIL contract before releasing the decryption key. This means only addresses the agent trusts as auditors can ever read a commitment.
+SAIL uses **Lit Protocol Chipotle** as the encryption layer for AI agent commitment blobs. The access condition is tied directly to `SAIL.isAuthorized()` onchain — Lit nodes check the SAIL contract before releasing the decryption key. This means only addresses the agent trusts as auditors can ever read a commitment.
 
 ---
 
 ## Why We Need Lit Protocol
 
-SAIL's commit-before-execute guarantee depends on one thing: the decision blob must be **readable by authorized auditors and nobody else**.
+SAIL's commit before execute guarantee depends on one thing: the decision blob must be **readable by authorized auditors and nobody else**.
 
 If the blob is stored in plaintext on 0G Storage, anyone can read any agent’s decisions — including competitors, adversaries, and the public. Agents would stop using SAIL rather than expose their reasoning.
 
@@ -19,11 +19,11 @@ What’s needed is encryption where **the decryption condition is enforced by a 
 With **Lit Protocol Chipotle**:
 - The decision blob is encrypted by a **PKP (Programmable Key Pair)** — a key that lives inside Lit’s TEE and is never exposed to anyone
 - Decryption runs inside a **Lit Action** — JavaScript executing in a hardware-isolated enclave
-- Before decrypting, the Lit Action calls `SAIL.isAuthorized(auditorAddress, agentEns)` **on-chain** — the SAIL contract is the gatekeeper, not Lit
+- Before decrypting, the Lit Action calls `SAIL.isAuthorized(auditorAddress, agentEns)` **onchain** — the SAIL contract is the gatekeeper, not Lit
 - If the auditor is not in the SAIL contract’s auditor list, Lit returns `{ error: "Not authorized" }` and the plaintext never leaves the TEE
-- The agent operator cannot bypass this — even with the PKP ID, they cannot decrypt without passing the on-chain authorization check
+- The agent operator cannot bypass this — even with the PKP ID, they cannot decrypt without passing the onchain authorization check
 
-This is the only architecture where the access condition for decryption is enforced by the same contract that enforces commit-before-execute. SAIL and Lit are wired together at the contract level, not just at the application level.
+This is the only architecture where the access condition for decryption is enforced by the same contract that enforces commit before execute. SAIL and Lit are wired together at the contract level, not just at the application level.
 
 ### How Lit Tech Stack Helps SAIL
 
@@ -80,7 +80,7 @@ async function main({ pkpId, message }) {
 }
 ```
 
-**Decrypt Action (with on-chain authorization):**
+**Decrypt Action (with onchain authorization):**
 ```javascript
 async function main({ pkpId, ciphertext, agentEns, auditorAddress, contractAddress }) {
   const isAuth = await Lit.Actions.callContract({
@@ -194,7 +194,7 @@ import { encryptCommitmentBlob, chipotleDecrypt, decryptAesFallbackBlob } from "
 const encrypted = await encryptCommitmentBlob(plaintextBytes, "swarnim.sail.eth");
 // encrypted.encryptionMethod → "chipotle" | "aes-fallback"
 
-// Decrypt via Chipotle (enforces SAIL.isAuthorized on-chain inside the Action)
+// Decrypt via Chipotle (enforces SAIL.isAuthorized onchain inside the Action)
 const plaintext = await chipotleDecrypt(
   encrypted.ciphertext,
   "swarnim.sail.eth",
