@@ -10,7 +10,7 @@ SAIL is a cryptographic accountability layer for AI agents operating on-chain. F
 
 AI agents are moving money, executing trades, calling contracts, and sending messages. Nobody can prove what they decided or why.
 
-Logging doesn't solve this. An agent can modify logs retroactively. An agent can reason one thing and do another. The decision leaves no immutable trace. When a multiagent system misbehaves, there is no accountability — just he-said-she-said between black boxes.
+An agent can reason one thing and do another. The decision leaves no immutable trace. When a multiagent system misbehaves, there is no accountability — just he-said-she-said between black boxes.
 
 ### The trust gap
 
